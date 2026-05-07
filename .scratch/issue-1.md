@@ -17,6 +17,7 @@ Token generation uses SHA-256(url + SECRET + nonce) → Base62 → 7 chars with 
 
 ## Acceptance criteria
 
+- [ ] `requirements.txt` exists and `pip install -r requirements.txt` succeeds
 - [ ] `POST /api/qr/create` with a valid URL returns 200 with `token`, `short_url`, `qr_code_url`, `original_url`
 - [ ] `GET /r/{token}` returns 302 with correct `Location` header
 - [ ] `GET /r/INVALID` returns 404
