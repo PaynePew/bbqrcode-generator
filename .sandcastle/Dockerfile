@@ -5,7 +5,14 @@ RUN apt-get update && apt-get install -y \
   git \
   curl \
   jq \
+  python3 \
+  python3-pip \
+  python3-venv \
   && rm -rf /var/lib/apt/lists/*
+
+# Make python3/pip3 available as python/pip
+RUN ln -s /usr/bin/python3 /usr/local/bin/python \
+  && ln -s /usr/bin/pip3 /usr/local/bin/pip
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
