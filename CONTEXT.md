@@ -14,8 +14,32 @@ A **Link** (one row in the `links` table) can be in exactly one of three states 
 
 ### Key distinctions
 
-- **Deleted** is intentional and terminal. A deleted link cannot be re-activated via PATCH.
-- **Expired** is time-based and reversible. A user may update `expires_at` to a future value (or null) to re-activate an expired link.
+- **Deleted** is intentional and terminal. A deleted link cannot be reactivated via PATCH.
+- **Expired** is time-based and reversible. A user may update `expires_at` to a future value (or null) to reactivate an expired link.
+
+### Reactivation (重新啟用)
+
+**Reactivation** is the canonical name for the operation that returns an `expired` Link to `active` by PATCH-ing `expires_at` to a future value or `null`. It is the inverse of natural expiry, exposed in the dashboard as a one-click action.
+
+Reactivation applies only to `expired`. It is **not** valid on `deleted` links — terminal state remains terminal.
+
+### Derived states (frontend-only)
+
+These states do **not** exist in the database or in any API response. They are computed by the frontend on top of the canonical states above and surfaced in the UI.
+
+| Derived state | Condition | Origin |
+|--------------|-----------|--------|
+| `missing` | A token sits in browser localStorage history, but `GET /api/qr/{token}` returns 404 | The browser's local history has drifted from the server (DB reset, link purged out-of-band, history imported from another browser) |
+
+`missing` is rendered with a distinct badge in the dashboard list and a manual "remove from history" action. The frontend MUST NOT auto-purge missing entries silently — the user needs to see that data drift happened.
+
+## Link History (frontend, Phase 1)
+
+The **Link History** is the per-browser list of tokens previously created from this device, kept in `localStorage`. It is the Phase 1 substitute for user identity — there is no auth, so the dashboard can only ever show the links a given browser has minted itself.
+
+Link History supports a soft/hard removal distinction (a `dismissed` flag separates "deleted on the server but still in my history" from "purged from history entirely") and a recover-by-token affordance for users who lose their localStorage. Schema details and operations live in PRD #6.
+
+When auth is introduced, Link History is expected to migrate into a server-side per-user concept; the term will outlive its localStorage implementation.
 
 ## Scan
 
