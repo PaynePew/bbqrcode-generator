@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -11,6 +11,7 @@ from database import SessionLocal
 from models import Link, Scan
 from token_generator import allocate_token, TokenCollisionError
 from url_validator import validate_and_normalize, InvalidURLError
+from qr_generator import generate_qr_png
 
 router = APIRouter()
 
@@ -114,6 +115,17 @@ def create_qr(body: CreateRequest, db: Session = Depends(get_db)):
         "qr_code_url": f"{base_url}/api/qr/{token}/image",
         "original_url": normalized_url,
     }
+
+
+@router.get("/api/qr/{token}/image")
+def qr_image(token: str, db: Session = Depends(get_db)):
+    link = db.query(Link).filter(Link.token == token).first()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+    cfg = _config()
+    short_url = f"{cfg['base_url']}/r/{token}"
+    png_bytes = generate_qr_png(short_url)
+    return Response(content=png_bytes, media_type="image/png")
 
 
 @router.get("/r/{token}")
