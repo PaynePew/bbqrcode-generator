@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -199,3 +200,48 @@ def delete_link(token: str, db: Session = Depends(get_db)):
         db.commit()
 
     return {"token": token, "status": "deleted"}
+
+
+@router.get("/api/qr/{token}/analytics")
+def get_analytics(token: str, db: Session = Depends(get_db)):
+    link = db.query(Link).filter(Link.token == token).first()
+    if link is None:
+        raise HTTPException(status_code=404, detail="Token not found")
+
+    all_scans = db.query(Scan).filter(Scan.token == token).all()
+
+    day_data: dict = defaultdict(lambda: {"count": 0, "status_codes": defaultdict(int)})
+    for scan in all_scans:
+        day = scan.scanned_at.date().isoformat()
+        day_data[day]["count"] += 1
+        day_data[day]["status_codes"][str(scan.status_code)] += 1
+
+    scans_by_day = [
+        {"date": day, "count": data["count"], "status_codes": dict(data["status_codes"])}
+        for day, data in sorted(day_data.items())
+    ]
+
+    recent = (
+        db.query(Scan)
+        .filter(Scan.token == token)
+        .order_by(Scan.scanned_at.desc())
+        .limit(50)
+        .all()
+    )
+    recent_scans = [
+        {
+            "scanned_at": scan.scanned_at.isoformat(),
+            "status_code": scan.status_code,
+            "ip_address": scan.ip_address,
+            "user_agent": scan.user_agent,
+        }
+        for scan in recent
+    ]
+
+    return {
+        "token": token,
+        "total_scans": len(all_scans),
+        "timezone": "UTC",
+        "scans_by_day": scans_by_day,
+        "recent_scans": recent_scans,
+    }
