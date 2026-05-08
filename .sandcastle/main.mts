@@ -30,23 +30,13 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
 // Maximum number of plan→execute→merge cycles before stopping.
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
-const MAX_ITERATIONS = 1;
+const MAX_ITERATIONS = 5;
 
 // Hooks run inside the sandbox before the agent starts each iteration.
-// npm install keeps sandcastle tooling fresh; pip install handles Python deps.
+// npm install ensures the sandbox always has fresh dependencies.
 const hooks = {
-  sandbox: {
-    onSandboxReady: [
-      { command: "npm install" },
-      { command: "pip install -r requirements.txt", continueOnError: true },
-    ],
-  },
+  sandbox: { onSandboxReady: [{ command: "pip install -r requirements.txt" }] },
 };
-
-// Copy node_modules from the host into the worktree before each sandbox
-// starts. Avoids a full npm install from scratch; the hook above handles
-// platform-specific binaries and any packages added since the last copy.
-const copyToWorktree = ["node_modules"];
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -72,7 +62,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     // not write code.
     maxIterations: 1,
     // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: sandcastle.claudeCode("claude-opus-4-7"),
+    agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
@@ -118,7 +108,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         branch: issue.branch,
         sandbox: docker(),
         hooks,
-        copyToWorktree,
       });
 
       try {
@@ -144,6 +133,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
+              SOURCE_BRANCH: "main",
             },
           });
 
@@ -211,13 +201,15 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     sandbox: docker(),
     name: "merger",
     maxIterations: 1,
-    agent: sandcastle.claudeCode("claude-opus-4-7"),
+    agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // A markdown list of branch names, one per line.
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
       // A markdown list of issue IDs and titles, one per line.
-      ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
+      ISSUES: completedIssues
+        .map((i) => `- ${i.id}: ${i.title}`)
+        .join("\n"),
     },
   });
 

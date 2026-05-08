@@ -7,12 +7,10 @@ RUN apt-get update && apt-get install -y \
   jq \
   python3 \
   python3-pip \
-  python3-venv \
   && rm -rf /var/lib/apt/lists/*
 
-# Make python3/pip3 available as python/pip
-RUN ln -s /usr/bin/python3 /usr/local/bin/python \
-  && ln -s /usr/bin/pip3 /usr/local/bin/pip
+# Allow pip to install into the system Python inside this container
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
