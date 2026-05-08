@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -155,7 +155,8 @@ def get_link_info(token: str, db: Session = Depends(get_db)):
 
 
 class PatchRequest(BaseModel):
-    original_url: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+    original_url: Optional[str] = Field(default=None, min_length=1)
     expires_at: Optional[datetime] = None
 
 
@@ -173,6 +174,8 @@ def patch_link(token: str, body: PatchRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=422, detail="No updatable fields provided")
 
     if "original_url" in fields_to_update:
+        if body.original_url is None:
+            raise HTTPException(status_code=422, detail="original_url cannot be null")
         try:
             link.original_url = validate_and_normalize(body.original_url)
         except InvalidURLError as e:

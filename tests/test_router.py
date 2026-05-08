@@ -180,6 +180,23 @@ class TestPatchEndpoint:
         resp = client.patch(f"/api/qr/{token}", json={})
         assert resp.status_code == 422
 
+    def test_patch_rejects_unknown_field(self, client):
+        token = client.post("/api/qr/create", json={"url": "https://example.com/unknown"}).json()["token"]
+        resp = client.patch(f"/api/qr/{token}", json={"url": "https://new.com"})
+        assert resp.status_code == 422
+        assert "url" in resp.text
+
+    def test_patch_rejects_null_original_url(self, client):
+        token = client.post("/api/qr/create", json={"url": "https://example.com/null"}).json()["token"]
+        resp = client.patch(f"/api/qr/{token}", json={"original_url": None})
+        assert resp.status_code == 422
+        assert "null" in resp.text.lower() or "none" in resp.text.lower()
+
+    def test_patch_rejects_empty_original_url(self, client):
+        token = client.post("/api/qr/create", json={"url": "https://example.com/blank"}).json()["token"]
+        resp = client.patch(f"/api/qr/{token}", json={"original_url": ""})
+        assert resp.status_code == 422
+
     def test_patch_returns_404_for_unknown_token(self, client):
         resp = client.patch("/api/qr/NOTEXIST", json={"original_url": "https://example.com/x"})
         assert resp.status_code == 404
