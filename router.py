@@ -71,7 +71,9 @@ def qr_image(token: str, db: Session = Depends(get_db)):
     link = db.query(Link).filter(Link.token == token).first()
     if link is None:
         raise HTTPException(status_code=404, detail="Token not found")
-    png_bytes = generate_qr_png(link.original_url)
+    cfg = _config()
+    short_url = f"{cfg['base_url']}/r/{link.token}"
+    png_bytes = generate_qr_png(short_url)
     return Response(content=png_bytes, media_type="image/png")
 
 
