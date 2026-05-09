@@ -10,7 +10,7 @@ vi.mock('./client', () => ({
 }))
 
 import { apiClient } from './client'
-import { patchLink, deleteLink } from './qr'
+import { patchLink, deleteLink, getAnalytics } from './qr'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -93,5 +93,53 @@ describe('deleteLink', () => {
     const result = await deleteLink('abc1234')
 
     expect(result).toBeUndefined()
+  })
+})
+
+describe('getAnalytics', () => {
+  const mockAnalytics = {
+    token: 'abc1234',
+    timezone: 'UTC',
+    total_scans: 42,
+    scans_by_day: [
+      { date: '2026-05-01', count: 10, status_codes: { '302': 9, '410': 1 } },
+      { date: '2026-05-02', count: 5, status_codes: { '302': 5, '410': 0 } },
+    ],
+    recent_scans: [
+      {
+        scanned_at: '2026-05-02T12:00:00Z',
+        status_code: 302,
+        user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      },
+    ],
+  }
+
+  it('sends GET /qr/{token}/analytics', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockAnalytics })
+
+    await getAnalytics('abc1234')
+
+    expect(apiClient.get).toHaveBeenCalledWith('/qr/abc1234/analytics')
+  })
+
+  it('returns the analytics response', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockAnalytics })
+
+    const result = await getAnalytics('abc1234')
+
+    expect(result.token).toBe('abc1234')
+    expect(result.total_scans).toBe(42)
+    expect(result.scans_by_day).toHaveLength(2)
+    expect(result.recent_scans).toHaveLength(1)
+  })
+
+  it('returns recent scan with status_code and user_agent', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockAnalytics })
+
+    const result = await getAnalytics('abc1234')
+    const scan = result.recent_scans[0]
+
+    expect(scan.status_code).toBe(302)
+    expect(scan.user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
   })
 })

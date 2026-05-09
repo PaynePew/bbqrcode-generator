@@ -48,3 +48,28 @@ export async function patchLink(token: string, body: PatchLinkRequest): Promise<
 export async function deleteLink(token: string): Promise<void> {
   await apiClient.delete(`/qr/${token}`)
 }
+
+export interface ScanByDay {
+  date: string
+  count: number
+  status_codes: Record<string, number>
+}
+
+export interface RecentScan {
+  scanned_at: string
+  status_code: number
+  user_agent: string | null
+}
+
+export interface AnalyticsResponse {
+  token: string
+  timezone: string
+  total_scans: number
+  scans_by_day: ScanByDay[]
+  recent_scans: RecentScan[]
+}
+
+export async function getAnalytics(token: string): Promise<AnalyticsResponse> {
+  const { data } = await apiClient.get<AnalyticsResponse>(`/qr/${token}/analytics`)
+  return data
+}
