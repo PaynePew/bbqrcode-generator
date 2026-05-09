@@ -30,8 +30,6 @@ import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { parse as parseUA } from '@/lib/uaParser'
 
-const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
-
 const dtf = new Intl.DateTimeFormat('zh-TW', {
   year: 'numeric',
   month: '2-digit',
@@ -512,7 +510,7 @@ export function LinkDetail() {
 
   const entry = useLinkEntry(token ?? '')
 
-  const shortUrl = token ? `${BASE_URL}/r/${token}` : null
+  const shortUrl = entry.link?.short_url ?? null
 
   useEffect(() => {
     if (!entry.link || !qrContainerRef.current) return
@@ -520,7 +518,7 @@ export function LinkDetail() {
     rendererRef.current?.destroy()
     const style = getStyle(token!)
     const renderer = createRenderer({
-      data: shortUrl!,
+      data: entry.link.short_url,
       width: Math.min(style.size, 240),
       height: Math.min(style.size, 240),
       dotsOptions: {

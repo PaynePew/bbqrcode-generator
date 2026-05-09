@@ -40,8 +40,6 @@ import {
 } from '@/lib/expiresAtPresets'
 import { computePreviewHeight } from '@/lib/mobileLayout'
 
-const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
-
 const LOGO_MAX_BYTES = 2 * 1024 * 1024
 
 const DOT_TYPES: { value: DotType; label: string }[] = [
@@ -237,8 +235,8 @@ export function Generator() {
 
   const mutation = useCreateEntry()
 
-  const onCreateSuccess = (data: { token: string; original_url: string }) => {
-      const qrUrl = `${BASE_URL}/r/${data.token}`
+  const onCreateSuccess = (data: { token: string; original_url: string; short_url: string }) => {
+      const qrUrl = data.short_url
       setShortUrl(qrUrl)
       setCurrentToken(data.token)
       setJitterKey((k) => k + 1)
