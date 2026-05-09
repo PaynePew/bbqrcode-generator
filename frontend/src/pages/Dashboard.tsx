@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Copy, Check } from 'lucide-react'
 import { listTokens, type HistoryEntry } from '@/state/linkHistory'
 import { getLink, type GetLinkResponse, type LinkStatus } from '@/api/qr'
@@ -81,6 +82,7 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function LinkCard({ entry }: { entry: HistoryEntry }) {
+  const navigate = useNavigate()
   const query = useQuery<GetLinkResponse, ApiError>({
     queryKey: linkKey(entry.token),
     queryFn: () => getLink(entry.token),
@@ -94,8 +96,21 @@ function LinkCard({ entry }: { entry: HistoryEntry }) {
 
   const shortUrl = query.data?.short_url ?? `…/r/${entry.token}`
 
+  function handleCardClick(e: React.MouseEvent) {
+    // Don't navigate if user clicked the copy button
+    if ((e.target as HTMLElement).closest('button[title="複製短網址"]')) return
+    navigate(`/dashboard/${entry.token}`)
+  }
+
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-sm flex flex-col gap-2">
+    <div
+      className="rounded-lg border bg-card p-4 shadow-sm flex flex-col gap-2 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all"
+      onClick={handleCardClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/dashboard/${entry.token}`) }}
+      aria-label={`查看 ${entry.token} 的詳情`}
+    >
       <div className="flex items-start justify-between gap-2">
         <span
           className="text-sm font-medium truncate max-w-xs"

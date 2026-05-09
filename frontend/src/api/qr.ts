@@ -34,3 +34,17 @@ export async function getLink(token: string): Promise<GetLinkResponse> {
   const { data } = await apiClient.get<GetLinkResponse>(`/qr/${token}`)
   return data
 }
+
+export interface PatchLinkRequest {
+  original_url?: string
+  expires_at?: string | null
+}
+
+export async function patchLink(token: string, body: PatchLinkRequest): Promise<GetLinkResponse> {
+  const { data } = await apiClient.patch<GetLinkResponse>(`/qr/${token}`, body)
+  return data
+}
+
+export async function deleteLink(token: string): Promise<void> {
+  await apiClient.delete(`/qr/${token}`)
+}
