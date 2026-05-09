@@ -23,7 +23,7 @@ export function create(options: RendererOptions): QRRenderer {
     },
     async toBlob(format: 'png' | 'svg' | 'webp'): Promise<Blob> {
       const result = await instance.getRawData(format)
-      if (result === null || result === undefined) {
+      if (result == null) {
         throw new Error(`getRawData returned null for format: ${format}`)
       }
       return result as Blob

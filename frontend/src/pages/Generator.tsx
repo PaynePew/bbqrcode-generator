@@ -19,8 +19,8 @@ function validateUrl(value: string): string | undefined {
 export function Generator() {
   const qrContainerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<QRRenderer | null>(null)
-  const [shortUrl, setShortUrl] = useState<string | null>(null)
-  const [currentToken, setCurrentToken] = useState<string | null>(null)
+  const [token, setToken] = useState<string | null>(null)
+  const shortUrl = token ? `${BASE_URL}/r/${token}` : null
 
   useEffect(() => {
     return () => {
@@ -31,9 +31,8 @@ export function Generator() {
   const mutation = useMutation({
     mutationFn: createQr,
     onSuccess(data) {
+      setToken(data.token)
       const qrUrl = `${BASE_URL}/r/${data.token}`
-      setShortUrl(qrUrl)
-      setCurrentToken(data.token)
 
       rendererRef.current?.destroy()
       rendererRef.current = null
@@ -63,12 +62,12 @@ export function Generator() {
   })
 
   async function handleDownload() {
-    if (!rendererRef.current || !currentToken) return
+    if (!rendererRef.current || !token) return
     const blob = await rendererRef.current.toBlob('png')
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `qr-${currentToken}.png`
+    a.download = `qr-${token}.png`
     a.click()
     URL.revokeObjectURL(url)
   }
