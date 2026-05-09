@@ -65,7 +65,7 @@ function LinkCard({ entry }: { entry: HistoryEntry }) {
     mutationFn: (expires_at) => patchLink(entry.token, { expires_at }),
     onSuccess(data) {
       queryClient.setQueryData(linkKey(entry.token), data)
-      queryClient.invalidateQueries({ queryKey: ['link', entry.token] })
+      queryClient.invalidateQueries({ queryKey: linkKey(entry.token) })
       setShowReactivate(false)
       toast.success('連結已重新啟用', getToastOptions('success'))
     },
@@ -113,7 +113,6 @@ function LinkCard({ entry }: { entry: HistoryEntry }) {
         建立於 {relativeTime(entry.createdAt)}
       </div>
 
-      {/* Reactivate button for expired cards */}
       {status === 'expired' && !showReactivate && (
         <button
           type="button"

@@ -12,7 +12,7 @@ import { getStyle } from '@/state/styleStore'
 import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
 import { markDeleted } from '@/state/linkHistory'
 import { getToastOptions } from '@/lib/toastOptions'
-import { computeExpiresAt, toDatetimeLocalValue, type ExpiresAtPreset } from '@/lib/expiresAtPresets'
+import { computeExpiresAt, resolveExpiresAt, toDatetimeLocalValue, PRESET_LABELS, type ExpiresAtPreset } from '@/lib/expiresAtPresets'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge, type DerivedStatus } from '@/components/ui/StatusBadge'
@@ -173,14 +173,8 @@ function EditExpiresAtForm({
   )
   const [customValue, setCustomValue] = useState<string>(() => {
     if (initialExpiresAt) return toDatetimeLocalValue(new Date(initialExpiresAt))
-    return toDatetimeLocalValue(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
+    return toDatetimeLocalValue(new Date(computeExpiresAt(new Date(), '+30d')!))
   })
-
-  function getExpiresAt(): string | null {
-    if (preset === 'never') return null
-    if (preset === 'custom') return customValue ? new Date(customValue).toISOString() : null
-    return computeExpiresAt(new Date(), preset)
-  }
 
   function handlePresetClick(p: ExpiresAtPreset) {
     setPreset(p)
@@ -203,18 +197,10 @@ function EditExpiresAtForm({
     },
   })
 
-  const PRESET_LABELS: Record<string, string> = {
-    '+7d': '+7 天',
-    '+30d': '+30 天',
-    '+90d': '+90 天',
-    never: '永不過期',
-    custom: '自訂時間',
-  }
-
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
-        {(['+7d', '+30d', '+90d', 'never'] as const).map((p) => (
+        {(['+7d', '+30d', '+90d', 'never', 'custom'] as const).map((p) => (
           <button
             key={p}
             type="button"
@@ -230,19 +216,6 @@ function EditExpiresAtForm({
             {PRESET_LABELS[p]}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => setPreset('custom')}
-          disabled={mutation.isPending}
-          className={[
-            'rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
-            preset === 'custom'
-              ? 'border-primary bg-primary text-primary-foreground'
-              : 'border-input bg-background hover:border-primary/60',
-          ].join(' ')}
-        >
-          {PRESET_LABELS['custom']}
-        </button>
       </div>
 
       {preset !== 'never' && (
@@ -262,7 +235,7 @@ function EditExpiresAtForm({
         <Button
           type="button"
           size="sm"
-          onClick={() => mutation.mutate(getExpiresAt())}
+          onClick={() => mutation.mutate(resolveExpiresAt(preset, customValue))}
           disabled={mutation.isPending}
           className={mutation.isPending ? 'grayscale' : ''}
         >
@@ -462,7 +435,6 @@ export function LinkDetail() {
               </div>
             </div>
 
-            {/* expires_at — always visible, editable */}
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">到期時間</span>

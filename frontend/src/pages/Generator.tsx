@@ -28,7 +28,9 @@ import { useMotionPreference } from '@/lib/motionPreference'
 import { getToastOptions } from '@/lib/toastOptions'
 import {
   computeExpiresAt,
+  resolveExpiresAt,
   toDatetimeLocalValue,
+  PRESET_LABELS,
   type ExpiresAtPreset,
 } from '@/lib/expiresAtPresets'
 
@@ -117,16 +119,8 @@ export function Generator() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [expiresPreset, setExpiresPreset] = useState<ExpiresAtPreset>('never')
   const [customExpiresAt, setCustomExpiresAt] = useState<string>(() =>
-    toDatetimeLocalValue(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+    toDatetimeLocalValue(new Date(computeExpiresAt(new Date(), '+30d')!)),
   )
-
-  function getExpiresAtForApi(): string | null {
-    if (expiresPreset === 'never') return null
-    if (expiresPreset === 'custom') {
-      return customExpiresAt ? new Date(customExpiresAt).toISOString() : null
-    }
-    return computeExpiresAt(new Date(), expiresPreset)
-  }
 
   function handlePresetClick(preset: ExpiresAtPreset) {
     setExpiresPreset(preset)
@@ -261,7 +255,7 @@ export function Generator() {
   const form = useForm({
     defaultValues: { url: '' },
     onSubmit({ value }) {
-      mutation.mutate({ url: value.url, expires_at: getExpiresAtForApi() })
+      mutation.mutate({ url: value.url, expires_at: resolveExpiresAt(expiresPreset, customExpiresAt) })
     },
   })
 
@@ -286,7 +280,7 @@ export function Generator() {
     const defaultStyle = getDefault()
     setStyle(defaultStyle)
     setExpiresPreset('never')
-    setCustomExpiresAt(toDatetimeLocalValue(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)))
+    setCustomExpiresAt(toDatetimeLocalValue(new Date(computeExpiresAt(new Date(), '+30d')!)))
     form.reset()
     mutation.reset()
   }
@@ -395,7 +389,6 @@ export function Generator() {
           }}
         </form.Field>
 
-        {/* Advanced settings (expiry) */}
         <div className="rounded-lg border border-border">
           <button
             type="button"
@@ -417,49 +410,25 @@ export function Generator() {
                 <p className="text-xs text-muted-foreground mt-0.5">預設為永不過期。</p>
               </div>
 
-              {/* Preset chips */}
               <div className="flex flex-wrap gap-2">
-                {(['+7d', '+30d', '+90d', 'never'] as const).map((preset) => {
-                  const labels: Record<string, string> = {
-                    '+7d': '+7 天',
-                    '+30d': '+30 天',
-                    '+90d': '+90 天',
-                    never: '永不過期',
-                  }
-                  const active = expiresPreset === preset
-                  return (
-                    <button
-                      key={preset}
-                      type="button"
-                      onClick={() => handlePresetClick(preset)}
-                      disabled={mutation.isPending}
-                      className={[
-                        'rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
-                        active
-                          ? 'border-primary bg-primary text-primary-foreground'
-                          : 'border-input bg-background hover:border-primary/60',
-                      ].join(' ')}
-                    >
-                      {labels[preset]}
-                    </button>
-                  )
-                })}
-                <button
-                  type="button"
-                  onClick={() => setExpiresPreset('custom')}
-                  disabled={mutation.isPending}
-                  className={[
-                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
-                    expiresPreset === 'custom'
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-input bg-background hover:border-primary/60',
-                  ].join(' ')}
-                >
-                  自訂時間
-                </button>
+                {(['+7d', '+30d', '+90d', 'never', 'custom'] as const).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => handlePresetClick(preset)}
+                    disabled={mutation.isPending}
+                    className={[
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50',
+                      expiresPreset === preset
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-input bg-background hover:border-primary/60',
+                    ].join(' ')}
+                  >
+                    {PRESET_LABELS[preset]}
+                  </button>
+                ))}
               </div>
 
-              {/* Custom datetime picker */}
               {expiresPreset !== 'never' && (
                 <div className="flex flex-col gap-1">
                   <label htmlFor="expires-at-input" className="text-xs text-muted-foreground">

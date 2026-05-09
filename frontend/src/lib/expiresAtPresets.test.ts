@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { computeExpiresAt } from './expiresAtPresets'
+import { describe, expect, it, vi } from 'vitest'
+import { computeExpiresAt, resolveExpiresAt } from './expiresAtPresets'
 
 const now = new Date('2024-03-15T10:00:00.000Z')
 
@@ -40,5 +40,27 @@ describe('computeExpiresAt', () => {
     const past = new Date('2000-01-01T00:00:00.000Z')
     const result = computeExpiresAt(past, '+7d')
     expect(result).toBe('2000-01-08T00:00:00.000Z')
+  })
+})
+
+describe('resolveExpiresAt', () => {
+  it('returns null for never', () => {
+    expect(resolveExpiresAt('never', '')).toBeNull()
+  })
+
+  it('returns ISO string for custom with a value', () => {
+    const result = resolveExpiresAt('custom', '2024-04-01T12:00')
+    expect(result).toBe(new Date('2024-04-01T12:00').toISOString())
+  })
+
+  it('returns null for custom with empty value', () => {
+    expect(resolveExpiresAt('custom', '')).toBeNull()
+  })
+
+  it('delegates to computeExpiresAt for day-offset presets', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+    expect(resolveExpiresAt('+7d', '')).toBe('2024-03-22T10:00:00.000Z')
+    vi.useRealTimers()
   })
 })
