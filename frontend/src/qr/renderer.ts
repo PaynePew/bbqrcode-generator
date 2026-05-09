@@ -5,6 +5,7 @@ export type RendererOptions = Partial<Options>
 export interface QRRenderer {
   update(options: RendererOptions): void
   attachTo(node: HTMLElement): void
+  toBlob(format: 'png' | 'svg' | 'webp'): Promise<Blob>
   destroy(): void
 }
 
@@ -19,6 +20,13 @@ export function create(options: RendererOptions): QRRenderer {
     attachTo(node: HTMLElement) {
       container = node
       instance.append(node)
+    },
+    async toBlob(format: 'png' | 'svg' | 'webp'): Promise<Blob> {
+      const result = await instance.getRawData(format)
+      if (result === null || result === undefined) {
+        throw new Error(`getRawData returned null for format: ${format}`)
+      }
+      return result as Blob
     },
     destroy() {
       if (container) {

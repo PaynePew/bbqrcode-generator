@@ -20,6 +20,7 @@ export function Generator() {
   const qrContainerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<QRRenderer | null>(null)
   const [shortUrl, setShortUrl] = useState<string | null>(null)
+  const [currentToken, setCurrentToken] = useState<string | null>(null)
 
   useEffect(() => {
     return () => {
@@ -32,6 +33,7 @@ export function Generator() {
     onSuccess(data) {
       const qrUrl = `${BASE_URL}/r/${data.token}`
       setShortUrl(qrUrl)
+      setCurrentToken(data.token)
 
       rendererRef.current?.destroy()
       rendererRef.current = null
@@ -59,6 +61,17 @@ export function Generator() {
       mutation.mutate({ url: value.url })
     },
   })
+
+  async function handleDownload() {
+    if (!rendererRef.current || !currentToken) return
+    const blob = await rendererRef.current.toBlob('png')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `qr-${currentToken}.png`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const apiError = mutation.error as ApiError | null
   const networkError =
@@ -186,6 +199,12 @@ export function Generator() {
           <p className="text-sm text-muted-foreground">QR 碼預覽將顯示在這裡</p>
         )}
       </div>
+
+      {shortUrl && (
+        <Button variant="outline" onClick={handleDownload}>
+          下載 PNG
+        </Button>
+      )}
     </div>
   )
 }
