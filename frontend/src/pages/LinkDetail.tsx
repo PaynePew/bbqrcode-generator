@@ -4,10 +4,22 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from '@tanstack/react-form'
 import { toast } from 'sonner'
 import { ArrowLeft, Loader2, Trash2, Pencil } from 'lucide-react'
-import { getLink, patchLink, deleteLink, type GetLinkResponse } from '@/api/qr'
-import { linkKey } from '@/api/queryKeys'
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from 'recharts'
+import { format, subDays, parseISO } from 'date-fns'
+import { getLink, patchLink, deleteLink, getAnalytics, type GetLinkResponse, type AnalyticsResponse } from '@/api/qr'
+import { linkKey, analyticsKey } from '@/api/queryKeys'
 import type { ApiError } from '@/api/client'
 import { urlSchema } from '@/schemas/url'
+import { cn } from '@/lib/utils'
 import { getStyle } from '@/state/styleStore'
 import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
 import { markDeleted } from '@/state/linkHistory'
@@ -16,6 +28,7 @@ import { computeExpiresAt, resolveExpiresAt, toDatetimeLocalValue, PRESET_LABELS
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge, type DerivedStatus } from '@/components/ui/StatusBadge'
+import { parse as parseUA } from '@/lib/uaParser'
 
 const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
 
@@ -26,6 +39,242 @@ const dtf = new Intl.DateTimeFormat('zh-TW', {
   hour: '2-digit',
   minute: '2-digit',
 })
+
+const relDtf = new Intl.RelativeTimeFormat('zh-TW', { numeric: 'auto' })
+
+function relativeTime(isoDate: string): string {
+  const diff = (new Date(isoDate).getTime() - Date.now()) / 1000
+  if (Math.abs(diff) < 60) return relDtf.format(Math.round(diff), 'second')
+  if (Math.abs(diff) < 3600) return relDtf.format(Math.round(diff / 60), 'minute')
+  if (Math.abs(diff) < 86400) return relDtf.format(Math.round(diff / 3600), 'hour')
+  return relDtf.format(Math.round(diff / 86400), 'day')
+}
+
+type ChartFilter = 'all' | '302' | '410'
+
+const CHART_LINE_CONFIG: Record<ChartFilter, { dataKey: string; stroke: string; name: string }> = {
+  all: { dataKey: 'all', stroke: '#22c55e', name: '全部' },
+  '302': { dataKey: '302', stroke: '#22c55e', name: '302' },
+  '410': { dataKey: '410', stroke: '#ef4444', name: '410' },
+}
+
+interface ChartPoint {
+  date: string
+  all: number
+  '302': number
+  '410': number
+}
+
+function buildChartData(analytics: AnalyticsResponse): ChartPoint[] {
+  const today = new Date()
+  const byDate: Record<string, ChartPoint> = {}
+
+  for (let i = 29; i >= 0; i--) {
+    const d = format(subDays(today, i), 'yyyy-MM-dd')
+    byDate[d] = { date: d, all: 0, '302': 0, '410': 0 }
+  }
+
+  for (const day of analytics.scans_by_day) {
+    if (byDate[day.date]) {
+      byDate[day.date].all = day.count
+      byDate[day.date]['302'] = day.status_codes['302'] ?? 0
+      byDate[day.date]['410'] = day.status_codes['410'] ?? 0
+    }
+  }
+
+  return Object.values(byDate)
+}
+
+function formatChartDate(dateStr: string): string {
+  try {
+    return format(parseISO(dateStr), 'MM/dd')
+  } catch {
+    return dateStr
+  }
+}
+
+function statusBadgeClass(code: number): string {
+  return code === 302
+    ? 'bg-green-100 text-green-800'
+    : 'bg-red-100 text-red-800'
+}
+
+function formatUa(rawUa: string | null): string {
+  if (!rawUa) return '未知'
+  const { browser, os } = parseUA(rawUa)
+  if (browser && os) return `${browser} on ${os}`
+  if (browser) return browser
+  if (os) return os
+  return rawUa.slice(0, 40)
+}
+
+function todayScans(analytics: AnalyticsResponse): number {
+  const today = format(new Date(), 'yyyy-MM-dd')
+  return analytics.scans_by_day.find((d) => d.date === today)?.count ?? 0
+}
+
+function successRate(analytics: AnalyticsResponse): string {
+  const total = analytics.total_scans
+  if (total === 0) return '—'
+  const success = analytics.scans_by_day.reduce((acc, d) => acc + (d.status_codes['302'] ?? 0), 0)
+  return `${Math.round((success / total) * 100)}%`
+}
+
+function AnalyticsSection({ token }: { token: string }) {
+  const [filter, setFilter] = useState<ChartFilter>('all')
+
+  const query = useQuery<AnalyticsResponse, ApiError>({
+    queryKey: analyticsKey(token),
+    queryFn: () => getAnalytics(token),
+    enabled: !!token,
+  })
+
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        載入分析資料…
+      </div>
+    )
+  }
+
+  if (query.isError) {
+    return (
+      <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+        無法載入分析資料，請稍後再試。
+      </div>
+    )
+  }
+
+  const analytics = query.data!
+  const chartData = buildChartData(analytics)
+  const today = todayScans(analytics)
+  const rate = successRate(analytics)
+
+  if (analytics.total_scans === 0) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+        尚無掃描紀錄 — 將你的 QR Code 印出來/分享出去，回來這裡看數據！
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          { label: '總掃描次數', value: analytics.total_scans },
+          { label: '今日掃描', value: today },
+          { label: '成功率', value: rate },
+        ].map(({ label, value }) => (
+          <div key={label} className="rounded-lg border bg-card p-4 flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">{label}</span>
+            <span className="text-2xl font-bold">{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Line chart */}
+      <div className="rounded-lg border bg-card p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <span className="text-sm font-medium">過去 30 天掃描趨勢</span>
+          <div className="flex gap-1">
+            {(['all', '302', '410'] as ChartFilter[]).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={cn(
+                  'px-2 py-1 rounded text-xs font-medium transition-colors',
+                  filter === f
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-input hover:bg-muted',
+                )}
+              >
+                {f === 'all' ? '全部' : f}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            <XAxis
+              dataKey="date"
+              tickFormatter={formatChartDate}
+              tick={{ fontSize: 11 }}
+              interval="preserveStartEnd"
+            />
+            <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+            <Tooltip
+              labelFormatter={(v) => formatChartDate(String(v))}
+              formatter={(value, name) => [
+                value,
+                name === 'all' ? '全部' : name,
+              ]}
+            />
+            <Line
+              type="monotone"
+              dataKey={CHART_LINE_CONFIG[filter].dataKey}
+              stroke={CHART_LINE_CONFIG[filter].stroke}
+              dot={false}
+              strokeWidth={2}
+              name={CHART_LINE_CONFIG[filter].name}
+            />
+            {filter === 'all' && (
+              <Legend
+                formatter={(value) => (value === 'all' ? '全部' : value)}
+              />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Recent scans table */}
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b">
+          <span className="text-sm font-medium">最近掃描紀錄（最多 50 筆）</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="text-left px-4 py-2 font-medium text-muted-foreground">時間</th>
+                <th className="text-left px-4 py-2 font-medium text-muted-foreground">狀態碼</th>
+                <th className="text-left px-4 py-2 font-medium text-muted-foreground">用戶代理</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics.recent_scans.map((scan, idx) => (
+                <tr key={idx} className="border-b last:border-0 hover:bg-muted/20">
+                  <td className="px-4 py-2 whitespace-nowrap">
+                    <span title={dtf.format(new Date(scan.scanned_at))}>
+                      {relativeTime(scan.scanned_at)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium',
+                        statusBadgeClass(scan.status_code),
+                      )}
+                    >
+                      {scan.status_code}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {formatUa(scan.user_agent)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function absoluteTime(isoDate: string | null): string {
   if (!isoDate) return '永不過期'
@@ -542,6 +791,13 @@ export function LinkDetail() {
               </button>
             </div>
           )}
+
+          <div className="flex flex-col gap-3">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              分析資料
+            </h2>
+            <AnalyticsSection token={token} />
+          </div>
         </>
       )}
     </div>
