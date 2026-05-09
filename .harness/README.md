@@ -1,48 +1,43 @@
-# Agent harness (POC)
+# Agent harness
 
-A minimal Docker-based runner that drives `claude` against a single GitHub issue, using your **Claude subscription** (not an API key).
+A Docker-based runner that drives `claude` against a single GitHub issue, using your **Claude subscription** (not an API key), in two phases:
 
-This is the smallest possible thing that proves "subscription token can drive an agent inside Docker." It is intentionally **not** a Sandcastle replica — no parallelism, no plan/review/merge phases, no orchestrator. Once this works end-to-end, additional phases can be layered on.
+1. **Implement** — Sonnet 4.6 (default). Reads the issue, scaffolds, writes tests in Red-Green-Refactor style, commits.
+2. **Review** — Opus 4.6 (default). Checks out the same branch, reads the diff, applies safe refactors against `CODING_STANDARDS.md`, commits with `refactor:` prefix or no-ops.
+
+It is intentionally **not** a Sandcastle replica — no parallelism across issues, no auto-merge, no orchestrator queue. Each `run-issue.ps1` invocation handles one issue end-to-end on the host.
 
 ## How it works
 
 ```
-┌─ host (Windows / Docker Desktop) ─────────────────────────┐
-│                                                            │
-│  ~/.claude/.credentials.json   (OAuth, subscription auth)  │
-│  Windows Credential Manager    (gh auth token)             │
-│  qr_code_generator/            (this repo)                 │
-│       │                                                    │
-│       ▼ docker run                                         │
-│  ┌─ container (qr-agent:latest) ─────────────────────────┐ │
-│  │                                                       │ │
-│  │  /home/agent/.claude/.credentials.json  (writable)    │ │
-│  │  $GH_TOKEN env var                      (from host)   │ │
-│  │  /workspace/                            (RW mount)    │ │
-│  │                                                       │ │
-│  │  $ claude -p "$(cat /tmp/implement-prompt.md)"        │ │
-│  │           --max-turns 50 --add-dir /workspace          │ │
-│  │                                                       │ │
-│  │  agent → reads issue via gh, writes code, commits     │ │
-│  └───────────────────────────────────────────────────────┘ │
-│       │                                                    │
-│       ▼ container exits                                    │
-│  qr_code_generator/  ← new branch with the agent's commits │
-└────────────────────────────────────────────────────────────┘
+┌─ host (Windows / Docker Desktop) ─────────────────────────────────┐
+│                                                                    │
+│  ~/.claude/.credentials.json   (OAuth, subscription auth)          │
+│  Windows Credential Manager    (gh auth token)                     │
+│  qr_code_generator/            (this repo)                         │
+│       │                                                            │
+│       ├── docker run #1 ─── implement (Sonnet 4.6) ───────────┐    │
+│       │       │                                               │    │
+│       │       ▼ exits → branch slice-N-... has commits        │    │
+│       │                                                       │    │
+│       └── docker run #2 ─── review (Opus 4.6) ────────────────┤    │
+│               │                                               │    │
+│               ▼ exits → branch may have refactor: commits     │    │
+│                                                                    │
+│  qr_code_generator/  ← branch ready for PR                         │
+└────────────────────────────────────────────────────────────────────┘
 ```
 
 Two credentials cross the boundary by different mechanisms:
 
-- **Claude OAuth** — `~/.claude/.credentials.json` is bind-mounted read-only into the container, then *copied* to a writable location inside so OAuth refresh works without touching the host file.
-- **GitHub token** — On Windows, `gh` keeps the token in Credential Manager (not in `hosts.yml`), so we shell out to `gh auth token` on the host and pass the result as `GH_TOKEN` env var. The container's `gh` CLI auto-detects this and behaves identically to a logged-in install.
-
-The host's `.credentials.json` is never written to from the container, and the GitHub token never gets persisted in any file the container can see beyond its own process env.
+- **Claude OAuth** — `~/.claude/.credentials.json` is bind-mounted read-only, then *copied* to a writable location inside so OAuth refresh works without touching the host file.
+- **GitHub token** — On Windows, `gh` keeps the token in Credential Manager (not in `hosts.yml`), so we shell out to `gh auth token` on the host and pass the result as `GH_TOKEN`. The container's `gh` CLI auto-detects this.
 
 ## Prerequisites
 
 1. **Docker Desktop running** on Windows.
 2. **Claude logged in on host:** `claude login` (populates `~/.claude/.credentials.json`).
-3. **GitHub CLI logged in:** `gh auth login` (token is stored in Windows Credential Manager; verified by `gh auth status` showing "Logged in to github.com").
+3. **GitHub CLI logged in:** `gh auth login` — verify with `gh auth status`.
 4. **Repo cloned and you are inside it.**
 
 ## Build the image (one time, ~5 min)
@@ -51,67 +46,112 @@ The host's `.credentials.json` is never written to from the container, and the G
 docker build -t qr-agent:latest .\.harness\
 ```
 
-Re-run this whenever `.harness/Dockerfile` changes (typically: never, after the first successful build).
+Re-run this whenever `.harness/Dockerfile` changes.
 
-## Step 1 — Smoke test (verify auth works inside the container)
+## Step 1 — Smoke test
 
 ```powershell
 pwsh .\.harness\run-hello.ps1
 ```
 
-Expected output: the agent prints `PONG`. If you see "Not authenticated" or model-error noise, your subscription token isn't reaching the CLI inside the container; check Docker Desktop's file-sharing settings and ensure `~/.claude` is on a shared drive.
+Expected output: `PONG`. Validates that subscription auth reaches the CLI inside the container.
 
 ## Step 2 — Run on a real issue
+
+Default flow (implement → review):
 
 ```powershell
 pwsh .\.harness\run-issue.ps1 -Issue 7
 ```
 
-This runs the agent against issue #7 (Slice 1: project skeleton) with up to 50 agent turns. The container exits when the agent says it's done; the script then prints the new local branches and any uncommitted state on the host.
+This runs **two containers** in sequence on the same `slice-7-...` branch:
 
-To override the turn budget:
+1. **Implement (Sonnet 4.6):** reads issue #7, scaffolds, tests, commits.
+2. **Review (Opus 4.6):** reads the diff, applies safe refactors per `CODING_STANDARDS.md`, commits with `refactor:` prefix (or skips if clean).
+
+### Useful flags
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `-MaxTurns` | `60` | Per-phase budget. Slice-1 scaffold needed ~30; complex slices may need 80+. |
+| `-ImplementModel` | `claude-sonnet-4-6` | Model used for the implement phase. |
+| `-ReviewModel` | `claude-opus-4-6` | Model used for the review phase. |
+| `-SkipReview` | off | Run implement only — useful when you'll review by hand. |
+| `-SkipImplement` | off | Re-run review on an existing branch (e.g. after manual edits). |
+
+Examples:
 
 ```powershell
-pwsh .\.harness\run-issue.ps1 -Issue 7 -MaxTurns 30
+# Implement-only run (skip the Opus review)
+pwsh .\.harness\run-issue.ps1 -Issue 8 -SkipReview
+
+# Re-run review on a branch you already have
+pwsh .\.harness\run-issue.ps1 -Issue 7 -SkipImplement
+
+# Override models — e.g. if claude-opus-4-6 is rejected by your CLI version
+pwsh .\.harness\run-issue.ps1 -Issue 9 -ReviewModel claude-opus-4-7
+
+# Bigger turn budget for a complex slice
+pwsh .\.harness\run-issue.ps1 -Issue 11 -MaxTurns 100
 ```
 
-## What the agent CAN and CANNOT do
+## Files
 
-The implement prompt in `prompts/implement.md` enforces:
+| Path | Purpose |
+|---|---|
+| `Dockerfile` | Base image: Node 22, Python 3, git, gh, claude CLI; `node` user renamed to `agent` (UID 1000). |
+| `run-hello.ps1` | Smoke test — verifies subscription auth works in the container. |
+| `run-issue.ps1` | Two-phase orchestrator (implement → review). |
+| `prompts/implement.md` | Implementation prompt — RGR discipline, branch contract, scope guards. |
+| `prompts/review.md` | Review prompt — diff-driven refactor against `CODING_STANDARDS.md`. |
+| `CODING_STANDARDS.md` | Project standards loaded by the reviewer (not the implementer — saves implement-phase tokens). |
 
-- ✅ Create a feature branch `slice-{N}-...`
-- ✅ Implement the issue's acceptance criteria
-- ✅ Write tests for modules called out in the AC
-- ✅ Commit on the local branch
-- ❌ Push to `origin` (the host operator does this after review)
+## What the agents CAN and CANNOT do
+
+Both phases enforce:
+
+- ✅ Operate on a feature branch `slice-{N}-...`
+- ❌ Push to `origin` (the host operator does this after inspection)
 - ❌ Modify `main`
-- ❌ Touch `.harness/`, `.sandcastle/`, or `.claude/`
+- ❌ Touch `.harness/`, `.sandcastle/`, `.claude/`
 - ❌ Close the issue
+- ❌ Rewrite history (no `--amend`, no rebase)
+
+The implement phase additionally:
+
+- ✅ Creates the branch, scaffolds, writes tests, commits with conventional-commit prefixes
+
+The review phase additionally:
+
+- ✅ Reads the diff and `CODING_STANDARDS.md`, applies safe refactors with `refactor:` commits
+- ❌ Adds new features or expands scope (it flags those for the human instead)
+- ❌ Changes WHAT the code does — only HOW
 
 ## Cost / rate-limit reality (Pro subscription)
 
-- Pro has a 5-hour message window. A single 50-turn implementer can consume a meaningful fraction of one window depending on tool use.
-- **Run one issue at a time.** Parallelism with this harness will hit your rate limit before it finishes. If you want N issues in parallel, use the API and pay separately (that's what `.sandcastle/` is for).
-- If a run crashes mid-way for rate-limit reasons, the partial commits are still on the local branch. You can `git reset --hard origin/main` and retry, or amend.
+- Pro has a 5-hour message window. A two-phase run can consume a meaningful fraction depending on tool use.
+- **One issue at a time.** Parallelism with this harness will hit your rate limit before it finishes.
+- If a run crashes mid-way for rate-limit reasons, partial commits stay on the local branch. You can `git reset --hard origin/main` and retry, or amend.
+- If the implement phase succeeds but review hits a rate limit, the implementer's commits are preserved — you can `-SkipImplement` to re-run only the review later.
 
 ## Known gaps vs Sandcastle
 
 | Sandcastle feature | This harness | Notes |
 |---|---|---|
-| Multi-issue planning | ❌ | You name the issue manually |
-| Parallel execution | ❌ | Single container at a time |
-| Reviewer pass | ❌ | Add later if implementer alone isn't reliable |
-| Auto-merge | ❌ | You merge on host with `gh pr merge` or `git merge` |
-| MCP server config | ⚠️ | Inherits from `~/.claude/settings.json`; not yet copied into container |
-| Hooks | ❌ | Settings hooks aren't propagated; add if needed |
+| Multi-issue planning | ❌ | You name the issue manually. |
+| Parallel execution | ❌ | One container at a time. |
+| Plan phase | ❌ | Planner agent isn't wired in (the implement prompt explores directly). |
+| Reviewer pass | ✅ | Default-on, runs on Opus 4.6 against `CODING_STANDARDS.md`. |
+| Auto-merge | ❌ | You merge on host with `gh pr merge` or `git merge`. |
+| MCP server config | ⚠️ | Inherits from `~/.claude/settings.json`; not yet copied into container. |
+| Hooks | ❌ | Settings hooks aren't propagated. |
 
 ## When this stops being enough
 
-You'll outgrow this harness when any of:
+You'll outgrow this harness when:
 
 1. You want N issues running concurrently → switch to API (Sandcastle as-is, or build a similar TS orchestrator).
-2. The implementer's output quality drops without a reviewer → add a `run-review.ps1` that runs a second container on the same branch.
-3. Rate-limit failures dominate → switch to API.
-4. You want unattended overnight runs → add a TS/Python orchestrator that loops `run-issue.ps1` over a queue.
+2. Rate-limit failures dominate → switch to API.
+3. You want unattended overnight runs → add an orchestrator that loops `run-issue.ps1` over a queue.
 
-Each upgrade is additive. The Dockerfile stays the same.
+Each upgrade is additive. The Dockerfile and prompts stay the same.
