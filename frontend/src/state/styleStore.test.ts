@@ -23,7 +23,7 @@ describe('styleStore', () => {
   })
 
   it('setDefault / getDefault round-trip', () => {
-    const style = { foreground: '#ff0000', background: '#00ff00', size: 400, dotType: 'dots' as const }
+    const style = { foreground: '#ff0000', background: '#00ff00', size: 400, dotType: 'dots' as const, ecl: 'Q' as const }
     setDefault(style, storage)
     expect(getDefault(storage)).toEqual(style)
   })
@@ -39,7 +39,7 @@ describe('styleStore', () => {
   })
 
   it('setStyle / getStyle per-token round-trip', () => {
-    const style = { foreground: '#ff0000', background: '#0000ff', size: 500, dotType: 'rounded' as const }
+    const style = { foreground: '#ff0000', background: '#0000ff', size: 500, dotType: 'rounded' as const, ecl: 'H' as const }
     setStyle('tok1', style, storage)
     expect(getStyle('tok1', storage)).toEqual(style)
   })
@@ -75,5 +75,15 @@ describe('styleStore', () => {
   it('partial / invalid object in storage returns DEFAULT_STYLE', () => {
     storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000' }))
     expect(getDefault(storage)).toEqual(DEFAULT_STYLE)
+  })
+
+  it('stored style without ecl field falls back to default ECL (M)', () => {
+    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', size: 320, dotType: 'square' }))
+    expect(getDefault(storage).ecl).toBe('M')
+  })
+
+  it('stored style with invalid ecl value falls back to default ECL (M)', () => {
+    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', size: 320, dotType: 'square', ecl: 'X' }))
+    expect(getDefault(storage).ecl).toBe('M')
   })
 })
