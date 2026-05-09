@@ -91,16 +91,12 @@ export function Generator() {
       setShortUrl(qrUrl)
       setCurrentToken(data.token)
 
-      // Copy current (default) style to per-token storage
-      const currentStyle = style
-      persistSetStyle(data.token, currentStyle)
+      persistSetStyle(data.token, style)
 
       rendererRef.current?.destroy()
       rendererRef.current = null
 
-      const renderer = createRenderer({
-        ...styleToRendererOptions(currentStyle, qrUrl),
-      })
+      const renderer = createRenderer(styleToRendererOptions(style, qrUrl))
       rendererRef.current = renderer
 
       if (qrContainerRef.current) {
@@ -109,7 +105,6 @@ export function Generator() {
     },
   })
 
-  // Load per-token style if a token exists (e.g. after re-render)
   useEffect(() => {
     if (currentToken) {
       const saved = getStyle(currentToken)
@@ -248,7 +243,6 @@ export function Generator() {
         </Button>
       </form>
 
-      {/* QR preview */}
       <div
         className={[
           'flex items-center justify-center rounded-lg border bg-white',
@@ -283,7 +277,6 @@ export function Generator() {
           disabled={mutation.isPending}
         />
 
-        {/* Size */}
         <div className="flex flex-col gap-1">
           <label className="text-sm font-medium">尺寸</label>
           <div className="flex items-center gap-3">
@@ -320,7 +313,6 @@ export function Generator() {
           </div>
         </div>
 
-        {/* Dot style */}
         <div className="flex flex-col gap-1">
           <label htmlFor="dot-style-select" className="text-sm font-medium">
             點點樣式
@@ -344,9 +336,7 @@ export function Generator() {
 
         <button
           type="button"
-          onClick={() => {
-            handleStyleChange({ ...DEFAULT_STYLE })
-          }}
+          onClick={() => handleStyleChange({ ...DEFAULT_STYLE })}
           disabled={mutation.isPending}
           className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
         >

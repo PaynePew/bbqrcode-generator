@@ -23,16 +23,16 @@ function tokenKey(token: string): string {
 function parse(raw: string | null): QRStyle | null {
   if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const obj = parsed as Record<string, unknown>
     if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'foreground' in parsed && typeof (parsed as Record<string, unknown>).foreground === 'string' &&
-      'background' in parsed && typeof (parsed as Record<string, unknown>).background === 'string' &&
-      'size' in parsed && typeof (parsed as Record<string, unknown>).size === 'number' &&
-      'dotType' in parsed && typeof (parsed as Record<string, unknown>).dotType === 'string'
+      typeof obj.foreground === 'string' &&
+      typeof obj.background === 'string' &&
+      typeof obj.size === 'number' &&
+      typeof obj.dotType === 'string'
     ) {
-      return parsed as QRStyle
+      return obj as unknown as QRStyle
     }
   } catch {
     // fall through
@@ -49,11 +49,7 @@ export function setDefault(style: QRStyle, storage: Storage = globalThis.localSt
 }
 
 export function getStyle(token: string, storage: Storage = globalThis.localStorage): QRStyle {
-  const raw = storage.getItem(tokenKey(token))
-  if (raw !== null) {
-    return parse(raw) ?? getDefault(storage)
-  }
-  return getDefault(storage)
+  return parse(storage.getItem(tokenKey(token))) ?? getDefault(storage)
 }
 
 export function setStyle(token: string, style: QRStyle, storage: Storage = globalThis.localStorage): void {

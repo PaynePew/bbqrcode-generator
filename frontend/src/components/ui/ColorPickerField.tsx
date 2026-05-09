@@ -81,7 +81,7 @@ export function ColorPickerField({ label, value, onChange, disabled }: Props) {
           type="button"
           className="w-8 h-8 rounded border border-input flex-shrink-0 disabled:opacity-50"
           style={{ backgroundColor: value }}
-          onClick={() => !disabled && setOpen((v) => !v)}
+          onClick={() => setOpen((v) => !v)}
           aria-label={`開啟${label}色彩選擇器`}
           disabled={disabled}
         />
