@@ -106,7 +106,6 @@ export function Generator() {
   const prefersReducedMotion = useMotionPreference()
 
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null)
-  const [logoThumb, setLogoThumb] = useState<string | null>(null)
   const [logoScale, setLogoScale] = useState(0.2)
   const [logoError, setLogoError] = useState<string | null>(null)
 
@@ -131,26 +130,23 @@ export function Generator() {
     } else {
       setDefault(newStyle)
     }
-    if (rendererRef.current) {
-      rendererRef.current.update(styleToRendererOptions(newStyle, undefined, logoObjectUrl, logoScale))
-    }
+    updateRenderer(newStyle, logoObjectUrl, logoScale)
+  }
+
+  function updateRenderer(s: QRStyle, logoUrl: string | null, scale: number) {
+    rendererRef.current?.update(styleToRendererOptions(s, undefined, logoUrl, scale))
   }
 
   function handleLogoRemove() {
     revokeLogo()
     setLogoObjectUrl(null)
-    setLogoThumb(null)
     setLogoError(null)
-    if (rendererRef.current) {
-      rendererRef.current.update(styleToRendererOptions(style, undefined, null, logoScale))
-    }
+    updateRenderer(style, null, logoScale)
   }
 
   function handleLogoScaleChange(scale: number) {
     setLogoScale(scale)
-    if (rendererRef.current && logoObjectUrl) {
-      rendererRef.current.update(styleToRendererOptions(style, undefined, logoObjectUrl, scale))
-    }
+    updateRenderer(style, logoObjectUrl, scale)
   }
 
   const onDrop = useCallback(
@@ -177,11 +173,7 @@ export function Generator() {
       const objectUrl = URL.createObjectURL(file)
       logoObjectUrlRef.current = objectUrl
       setLogoObjectUrl(objectUrl)
-      setLogoThumb(objectUrl)
-
-      if (rendererRef.current) {
-        rendererRef.current.update(styleToRendererOptions(style, undefined, objectUrl, logoScale))
-      }
+      updateRenderer(style, objectUrl, logoScale)
     },
     [style, logoScale],
   )
@@ -535,10 +527,10 @@ export function Generator() {
             </span>
           </div>
 
-          {logoThumb ? (
+          {logoObjectUrl ? (
             <div className="flex items-center gap-3">
               <img
-                src={logoThumb}
+                src={logoObjectUrl}
                 alt="Logo 預覽"
                 className="h-16 w-16 rounded border border-border object-contain bg-white"
               />
