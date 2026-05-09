@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { DownloadFormat } from '@/state/downloadFormatStore'
+import { buttonVariants } from '@/components/ui/button'
+import { DOWNLOAD_FORMATS, type DownloadFormat } from '@/state/downloadFormatStore'
 
 const FORMAT_LABELS: Record<DownloadFormat, string> = {
   png: '下載 PNG',
@@ -36,7 +37,7 @@ export function DownloadSplitButton({
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [open])
 
-  const otherFormats = (['png', 'svg', 'webp'] as DownloadFormat[]).filter(f => f !== format)
+  const otherFormats = DOWNLOAD_FORMATS.filter(f => f !== format)
 
   function handleDropdownSelect(f: DownloadFormat) {
     setOpen(false)
@@ -44,8 +45,7 @@ export function DownloadSplitButton({
     onDownload(f)
   }
 
-  const baseClasses =
-    'inline-flex items-center justify-center whitespace-nowrap text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9'
+  const outline = buttonVariants({ variant: 'outline' })
 
   return (
     <div ref={containerRef} className="relative flex">
@@ -53,7 +53,7 @@ export function DownloadSplitButton({
         type="button"
         disabled={disabled}
         onClick={() => onDownload(format)}
-        className={cn(baseClasses, 'rounded-l-md rounded-r-none border-r-0 px-4 py-2')}
+        className={cn(outline, 'rounded-l-md rounded-r-none border-r-0')}
       >
         {FORMAT_LABELS[format]}
       </button>
@@ -63,7 +63,7 @@ export function DownloadSplitButton({
         onClick={() => setOpen(prev => !prev)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={cn(baseClasses, 'rounded-l-none rounded-r-md px-2')}
+        className={cn(outline, 'rounded-l-none rounded-r-md px-2')}
       >
         <ChevronDown className="h-4 w-4" />
       </button>

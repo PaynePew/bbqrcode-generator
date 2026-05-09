@@ -1,11 +1,12 @@
 import QRCodeStyling, { type Options } from 'qr-code-styling'
+import type { DownloadFormat } from '@/state/downloadFormatStore'
 
 export type RendererOptions = Partial<Options>
 
 export interface QRRenderer {
   update(options: RendererOptions): void
   attachTo(node: HTMLElement): void
-  toBlob(format: 'png' | 'svg' | 'webp'): Promise<Blob>
+  toBlob(format: DownloadFormat): Promise<Blob>
   destroy(): void
 }
 
@@ -21,7 +22,7 @@ export function create(options: RendererOptions): QRRenderer {
       container = node
       instance.append(node)
     },
-    async toBlob(format: 'png' | 'svg' | 'webp'): Promise<Blob> {
+    async toBlob(format: DownloadFormat): Promise<Blob> {
       const result = await instance.getRawData(format)
       if (result == null) {
         throw new Error(`getRawData returned null for format: ${format}`)

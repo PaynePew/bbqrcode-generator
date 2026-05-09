@@ -1,11 +1,11 @@
-export type DownloadFormat = 'png' | 'svg' | 'webp'
+export const DOWNLOAD_FORMATS = ['png', 'svg', 'webp'] as const
+export type DownloadFormat = (typeof DOWNLOAD_FORMATS)[number]
 
 const KEY = 'qr-download-format'
-const VALID: DownloadFormat[] = ['png', 'svg', 'webp']
 
 export function getDownloadFormat(storage: Storage = localStorage): DownloadFormat {
   const val = storage.getItem(KEY)
-  if (val && (VALID as string[]).includes(val)) return val as DownloadFormat
+  if (val && (DOWNLOAD_FORMATS as readonly string[]).includes(val)) return val as DownloadFormat
   return 'png'
 }
 
