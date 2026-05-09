@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { DownloadSplitButton } from '@/components/ui/DownloadSplitButton'
 import { ColorPickerField } from '@/components/ui/ColorPickerField'
 import { urlSchema, URL_MAX_LENGTH } from '@/schemas/url'
 import { createQr } from '@/api/qr'
@@ -26,6 +27,11 @@ import {
 import { applyEclPolicy } from '@/qr/eclPolicy'
 import { useMotionPreference } from '@/lib/motionPreference'
 import { getToastOptions } from '@/lib/toastOptions'
+import {
+  getDownloadFormat,
+  setDownloadFormat,
+  type DownloadFormat,
+} from '@/state/downloadFormatStore'
 
 const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
 
@@ -108,6 +114,10 @@ export function Generator() {
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null)
   const [logoScale, setLogoScale] = useState(0.2)
   const [logoError, setLogoError] = useState<string | null>(null)
+
+  const [downloadFormat, setDownloadFormatState] = useState<DownloadFormat>(() =>
+    getDownloadFormat(),
+  )
 
   function revokeLogo() {
     if (logoObjectUrlRef.current) {
@@ -238,15 +248,20 @@ export function Generator() {
     },
   })
 
-  async function handleDownload() {
+  async function handleDownload(format: DownloadFormat = downloadFormat) {
     if (!rendererRef.current || !currentToken) return
-    const blob = await rendererRef.current.toBlob('png')
-    const url = URL.createObjectURL(blob)
+    const blob = await rendererRef.current.toBlob(format)
+    const objectUrl = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url
-    a.download = `qr-${currentToken}.png`
+    a.href = objectUrl
+    a.download = `qr-${currentToken}.${format}`
     a.click()
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(objectUrl)
+  }
+
+  function handleFormatChange(format: DownloadFormat) {
+    setDownloadFormatState(format)
+    setDownloadFormat(format)
   }
 
   const apiError = mutation.error as ApiError | null
@@ -603,9 +618,11 @@ export function Generator() {
 
       {shortUrl && (
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleDownload}>
-            下載 PNG
-          </Button>
+          <DownloadSplitButton
+            format={downloadFormat}
+            onDownload={handleDownload}
+            onFormatChange={handleFormatChange}
+          />
           <Button type="button" variant="outline" onClick={handleReset}>
             重新產生
           </Button>
