@@ -7,6 +7,7 @@ import { urlSchema, URL_MAX_LENGTH } from '@/schemas/url'
 import { createQr } from '@/api/qr'
 import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
 import type { ApiError } from '@/api/client'
+import { addToken } from '@/state/linkHistory'
 
 const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
 
@@ -32,6 +33,11 @@ export function Generator() {
     mutationFn: createQr,
     onSuccess(data) {
       setToken(data.token)
+      addToken({
+        token: data.token,
+        originalUrl: data.original_url,
+        createdAt: new Date().toISOString(),
+      })
       const qrUrl = `${BASE_URL}/r/${data.token}`
 
       rendererRef.current?.destroy()
