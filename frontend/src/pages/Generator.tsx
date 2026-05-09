@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { useMutation } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Loader2, CheckCircle2 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import confetti from 'canvas-confetti'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { ColorPickerField } from '@/components/ui/ColorPickerField'
 import { urlSchema, URL_MAX_LENGTH } from '@/schemas/url'
@@ -18,6 +21,8 @@ import {
   type QRStyle,
   type DotType,
 } from '@/state/styleStore'
+import { useMotionPreference } from '@/lib/motionPreference'
+import { getToastOptions } from '@/lib/toastOptions'
 
 const BASE_URL = import.meta.env.VITE_BASE_URL ?? window.location.origin
 
@@ -66,6 +71,8 @@ export function Generator() {
   const [shortUrl, setShortUrl] = useState<string | null>(null)
   const [currentToken, setCurrentToken] = useState<string | null>(null)
   const [style, setStyle] = useState<QRStyle>(() => getDefault())
+  const [jitterKey, setJitterKey] = useState(0)
+  const prefersReducedMotion = useMotionPreference()
 
   useEffect(() => {
     return () => {
@@ -96,6 +103,7 @@ export function Generator() {
       const qrUrl = `${BASE_URL}/r/${data.token}`
       setShortUrl(qrUrl)
       setCurrentToken(data.token)
+      setJitterKey((k) => k + 1)
 
       persistSetStyle(data.token, style)
 
@@ -107,6 +115,18 @@ export function Generator() {
 
       if (qrContainerRef.current) {
         renderer.attachTo(qrContainerRef.current)
+      }
+
+      toast.success('QR 碼已產生！', getToastOptions('success'))
+
+      if (!prefersReducedMotion) {
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } })
+      }
+    },
+    onError(err) {
+      const apiErr = err as unknown as ApiError
+      if (apiErr.isNetwork || apiErr.status !== 422) {
+        toast.error('網路錯誤，請稍後再試。', getToastOptions('error'))
       }
     },
   })
@@ -137,10 +157,6 @@ export function Generator() {
   }
 
   const apiError = mutation.error as ApiError | null
-  const networkError =
-    mutation.isError && apiError && (apiError.isNetwork || apiError.status !== 422)
-      ? '網路錯誤，請稍後再試。'
-      : null
 
   function handleReset() {
     setShortUrl(null)
@@ -200,9 +216,24 @@ export function Generator() {
 
             return (
               <div className="flex flex-col gap-1">
-                <label htmlFor="url-input" className="text-sm font-medium">
-                  目標網址
-                </label>
+                <div className="flex items-center gap-2">
+                  <label htmlFor="url-input" className="text-sm font-medium">
+                    目標網址
+                  </label>
+                  <AnimatePresence>
+                    {shortUrl && (
+                      <motion.span
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center gap-1 text-xs text-green-600 font-medium"
+                      >
+                        <CheckCircle2 className="h-3 w-3" />
+                        已產生
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </div>
                 <input
                   id="url-input"
                   type="text"
@@ -240,10 +271,6 @@ export function Generator() {
           }}
         </form.Field>
 
-        {networkError && (
-          <p className="text-sm text-destructive" role="alert">{networkError}</p>
-        )}
-
         <Button
           type="submit"
           disabled={mutation.isPending}
@@ -268,7 +295,18 @@ export function Generator() {
         ].join(' ')}
       >
         {shortUrl ? (
-          <div ref={qrContainerRef} />
+          <motion.div
+            key={jitterKey}
+            animate={
+              prefersReducedMotion
+                ? { opacity: 1 }
+                : { x: [-3, 3, -3, 3, 0], opacity: 1 }
+            }
+            initial={{ opacity: prefersReducedMotion ? 0.5 : 1 }}
+            transition={{ duration: 0.35 }}
+          >
+            <div ref={qrContainerRef} />
+          </motion.div>
         ) : (
           <p className="text-sm text-muted-foreground">QR 碼預覽將顯示在這裡</p>
         )}
