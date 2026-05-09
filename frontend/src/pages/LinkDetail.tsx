@@ -237,7 +237,7 @@ function AnalyticsSection({ token }: { token: string }) {
           <span className="text-sm font-medium">最近掃描紀錄（最多 50 筆）</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
                 <th className="text-left px-4 py-2 font-medium text-muted-foreground">時間</th>
@@ -544,8 +544,8 @@ export function LinkDetail() {
     const style = getStyle(token!)
     const renderer = createRenderer({
       data: shortUrl!,
-      width: Math.min(style.size, 280),
-      height: Math.min(style.size, 280),
+      width: Math.min(style.size, 240),
+      height: Math.min(style.size, 240),
       dotsOptions: {
         color: style.foreground,
         type: style.dotType as import('qr-code-styling').DotType,

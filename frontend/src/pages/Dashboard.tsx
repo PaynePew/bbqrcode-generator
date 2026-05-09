@@ -170,7 +170,7 @@ function LinkCard({
       aria-label={`查看 ${entry.token} 的詳情`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-medium truncate max-w-xs" title={entry.originalUrl}>
+        <span className="text-sm font-medium truncate flex-1 min-w-0" title={entry.originalUrl}>
           {truncateUrl(entry.originalUrl)}
         </span>
         {query.isLoading ? (
@@ -182,8 +182,8 @@ function LinkCard({
         )}
       </div>
 
-      <div className="flex items-center text-xs text-muted-foreground">
-        <span className="font-mono">{shortUrl}</span>
+      <div className="flex items-center text-xs text-muted-foreground min-w-0">
+        <span className="font-mono truncate">{shortUrl}</span>
         <CopyButton text={shortUrl} />
       </div>
 

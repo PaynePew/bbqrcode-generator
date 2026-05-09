@@ -8,24 +8,33 @@ const navItems = [
 ]
 
 interface SidebarProps {
-  open: boolean
+  desktopOpen: boolean
+  mobileOpen: boolean
+  onMobileClose: () => void
 }
 
-export function Sidebar({ open }: SidebarProps) {
+export function Sidebar({ desktopOpen, mobileOpen, onMobileClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'flex flex-col border-r bg-sidebar transition-all duration-200 shrink-0 overflow-hidden',
-        open ? 'w-52' : 'w-0 border-r-0',
+        'flex flex-col border-r bg-sidebar shrink-0 overflow-hidden',
+        // Mobile: fixed overlay panel, slide in/out via transform
+        'fixed top-14 bottom-0 z-50 w-52 transition-transform duration-200',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        // Desktop: inline, controlled by width
+        'md:relative md:top-auto md:bottom-auto md:z-auto',
+        'md:translate-x-0 md:transition-all md:duration-200',
+        desktopOpen ? 'md:w-52' : 'md:w-0 md:border-r-0',
       )}
-      aria-hidden={!open}
+      aria-hidden={!desktopOpen && !mobileOpen}
     >
-      <nav className="flex flex-col gap-1 p-2 pt-3 min-w-[13rem]">
+      <nav className="flex flex-col gap-1 p-2 pt-3 w-52">
         {navItems.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
+            onClick={onMobileClose}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
