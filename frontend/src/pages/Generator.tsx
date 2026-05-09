@@ -134,6 +134,11 @@ export function Generator() {
     toDatetimeLocalValue(new Date(computeExpiresAt(new Date(), '+30d')!)),
   )
 
+  useEffect(() => {
+    if (!shortUrl || !rendererRef.current || !qrContainerRef.current) return
+    rendererRef.current.attachTo(qrContainerRef.current)
+  }, [shortUrl])
+
   // Scroll-based preview shrink (mobile only)
   const [previewScrollY, setPreviewScrollY] = useState(0)
   useEffect(() => {
@@ -250,12 +255,7 @@ export function Generator() {
       rendererRef.current?.destroy()
       rendererRef.current = null
 
-      const renderer = createRenderer(styleToRendererOptions(style, qrUrl, logoObjectUrl, logoScale))
-      rendererRef.current = renderer
-
-      if (qrContainerRef.current) {
-        renderer.attachTo(qrContainerRef.current)
-      }
+      rendererRef.current = createRenderer(styleToRendererOptions(style, qrUrl, logoObjectUrl, logoScale))
 
       toast.success('QR 碼已產生！', getToastOptions('success'))
 
