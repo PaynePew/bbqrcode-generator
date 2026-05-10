@@ -1,17 +1,9 @@
 import itertools
-import os
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
-os.environ.setdefault("SECRET", "test-secret-value")
-os.environ.setdefault("BASE_URL", "http://testserver")
 
 from backend.main import app
-from backend.models import Base
 from backend.router import get_db
 
 _counter = itertools.count(1)
@@ -23,26 +15,6 @@ def _create(client, *, ip="1.2.3.4"):
         json={"url": f"https://example.com/p{next(_counter)}"},
         headers={"x-forwarded-for": ip},
     )
-
-
-@pytest.fixture
-def db_engine():
-    engine = create_engine(
-        "sqlite:///:memory:",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(bind=engine)
-    yield engine
-    engine.dispose()
-
-
-@pytest.fixture
-def db_session(db_engine):
-    Session = sessionmaker(bind=db_engine)
-    session = Session()
-    yield session
-    session.close()
 
 
 @pytest.fixture

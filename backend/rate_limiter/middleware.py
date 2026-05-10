@@ -1,13 +1,12 @@
-import json
 import logging
 import os
 from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response, JSONResponse
+from starlette.responses import JSONResponse
 
-from .limiter import RateLimiter
+from .limiter import CheckResult, RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +35,15 @@ def _client_ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
 
 
+def _ratelimit_headers(result: CheckResult) -> dict[str, str]:
+    return {
+        "RateLimit-Limit": str(result.limit),
+        "RateLimit-Remaining": str(result.remaining),
+        "RateLimit-Reset": str(result.reset_seconds),
+        "RateLimit-Policy": result.policy,
+    }
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method != _TARGET_METHOD or request.url.path != _TARGET_PATH:
@@ -56,25 +64,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 "rate_limiter.denied ip=%s limit=%d retry_after=%d path=%s",
                 ip, result.limit, result.retry_after_seconds, _TARGET_PATH,
             )
-            content = json.dumps({"detail": "Rate limit exceeded"}).encode()
-            return Response(
-                content=content,
+            return JSONResponse(
+                content={"detail": "Rate limit exceeded"},
                 status_code=429,
-                media_type="application/json",
                 headers={
-                    "RateLimit-Limit": str(result.limit),
-                    "RateLimit-Remaining": str(result.remaining),
-                    "RateLimit-Reset": str(result.reset_seconds),
-                    "RateLimit-Policy": result.policy,
+                    **_ratelimit_headers(result),
                     "Retry-After": str(result.retry_after_seconds),
                 },
             )
 
         response = await call_next(request)
-        response.headers["RateLimit-Limit"] = str(result.limit)
-        response.headers["RateLimit-Remaining"] = str(result.remaining)
-        response.headers["RateLimit-Reset"] = str(result.reset_seconds)
-        response.headers["RateLimit-Policy"] = result.policy
+        for name, value in _ratelimit_headers(result).items():
+            response.headers[name] = value
         return response
 
     @classmethod

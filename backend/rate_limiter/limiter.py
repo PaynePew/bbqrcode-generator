@@ -1,6 +1,5 @@
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 from .token_bucket import TokenBucket
 
@@ -20,7 +19,7 @@ class RateLimiter:
         self._limit = hourly_limit
         self._refill_rate = hourly_limit / 3600.0
         self._buckets: dict[str, TokenBucket] = {}
-        self._clock = clock or (lambda: time.monotonic())
+        self._clock = clock or time.monotonic
 
     def check(self, ip: str) -> CheckResult:
         now = self._clock()
