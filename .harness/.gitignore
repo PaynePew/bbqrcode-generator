@@ -1,2 +1,5 @@
+.env.local
+.image-hash
+.current-prompt.md
 logs/*
 !logs/.gitkeep

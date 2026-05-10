@@ -1,0 +1,37 @@
+BeforeAll {
+    . "$PSScriptRoot/../lib/render-prompt.ps1"
+}
+
+Describe 'Invoke-RenderPrompt' {
+    It 'substitutes a single placeholder' {
+        Invoke-RenderPrompt -Template 'Hello {{NAME}}' -Substitutions @{ NAME = 'World' } |
+            Should -Be 'Hello World'
+    }
+
+    It 'substitutes multiple placeholders on the same line' {
+        Invoke-RenderPrompt -Template '{{A}} and {{B}}' -Substitutions @{ A = 'foo'; B = 'bar' } |
+            Should -Be 'foo and bar'
+    }
+
+    It 'drops a line when the placeholder key is absent from substitutions' {
+        $template = "keep`n{{MISSING}}`nkeep"
+        Invoke-RenderPrompt -Template $template -Substitutions @{} |
+            Should -Be "keep`nkeep"
+    }
+
+    It 'drops a line when a key maps to empty string' {
+        $template = "before`n{{EMPTY}}`nafter"
+        Invoke-RenderPrompt -Template $template -Substitutions @{ EMPTY = '' } |
+            Should -Be "before`nafter"
+    }
+
+    It 'preserves lines that have no placeholders' {
+        Invoke-RenderPrompt -Template 'no placeholders here' -Substitutions @{} |
+            Should -Be 'no placeholders here'
+    }
+
+    It 'returns empty string for empty template' {
+        Invoke-RenderPrompt -Template '' -Substitutions @{} |
+            Should -Be ''
+    }
+}
