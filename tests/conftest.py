@@ -8,6 +8,7 @@ from sqlalchemy.pool import StaticPool
 
 os.environ.setdefault("SECRET", "test-secret-value")
 os.environ.setdefault("BASE_URL", "http://testserver")
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from backend.main import app
 from backend.models import Base

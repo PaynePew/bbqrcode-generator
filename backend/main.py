@@ -10,8 +10,25 @@ from .database import engine
 from .link_state import LinkAlreadyDeletedError, LinkNotFoundError
 from .models import Base
 from .router import router, redirect_router
+from .rate_limiter.middleware import RateLimitMiddleware
 
 load_dotenv()
+
+
+def _parse_bool(val: str, name: str) -> bool:
+    if val.lower() not in ("true", "false"):
+        raise RuntimeError(f"{name} must be 'true' or 'false', got: {val!r}")
+    return val.lower() == "true"
+
+
+def _parse_positive_int(val: str, name: str) -> int:
+    try:
+        n = int(val)
+    except ValueError:
+        raise RuntimeError(f"{name} must be an integer, got: {val!r}")
+    if n <= 0:
+        raise RuntimeError(f"{name} must be a positive integer, got: {n}")
+    return n
 
 
 @asynccontextmanager
@@ -20,11 +37,14 @@ async def lifespan(app: FastAPI):
         raise RuntimeError("SECRET environment variable must be set")
     if not os.environ.get("BASE_URL"):
         raise RuntimeError("BASE_URL environment variable must be set")
+    _parse_bool(os.environ.get("RATE_LIMIT_ENABLED", "true"), "RATE_LIMIT_ENABLED")
+    _parse_positive_int(os.environ.get("RATE_LIMIT_HOURLY", "30"), "RATE_LIMIT_HOURLY")
     Base.metadata.create_all(bind=engine)
     yield
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://localhost:\d+",
