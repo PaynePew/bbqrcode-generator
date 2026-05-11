@@ -90,9 +90,9 @@ The loader rejects tab indentation (matches PS YAML contract) and fails fast on 
 ### Plan only (decide what to ship next)
 
 ```powershell
-pwsh ./.harness/run.ps1            # plan → confirm → exit (you copy the suggested -Issue command)
-pwsh ./.harness/run.ps1 -Plan      # plan only, print ranking, never prompt
-pwsh ./.harness/run.ps1 -Yes       # plan, skip confirmation prompt (still prints suggestion)
+pwsh ./.harness/run.ps1            # plan → "Run #N? [Y/n]" → implement
+pwsh ./.harness/run.ps1 -Plan      # plan only, print ranking, never prompt or implement
+pwsh ./.harness/run.ps1 -Yes       # plan, auto-confirm, chain into implement
 ```
 
 Or on *nix / CI:

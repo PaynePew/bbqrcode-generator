@@ -5,7 +5,8 @@
 .PARAMETER Plan
     Run the plan phase only; print ranked candidates and exit.
 .PARAMETER Yes
-    Auto-confirm the top candidate from the plan phase (skip the Y/n prompt).
+    Auto-confirm the top candidate from the plan phase and chain into the
+    implement phase (skip the Y/n prompt and the manual `-Issue` follow-up).
 .PARAMETER SmokeTest
     Run the smoke-test prompt (validates plumbing without spending agent tokens).
 .PARAMETER Issue
@@ -14,9 +15,9 @@
     Resume implement on an existing branch for the given -Issue. Fails if no
     matching branch exists. Cannot be used without -Issue.
 .EXAMPLE
-    pwsh ./.harness/run.ps1               # plan → confirm → exit
-    pwsh ./.harness/run.ps1 -Plan         # plan only, print ranking
-    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm top candidate
+    pwsh ./.harness/run.ps1               # plan → confirm → implement
+    pwsh ./.harness/run.ps1 -Plan         # plan only, print ranking, no implement
+    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm + implement top candidate
     pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement #30
     pwsh ./.harness/run.ps1 -Issue 30 -Resume
     pwsh ./.harness/run.ps1 -SmokeTest
@@ -340,11 +341,9 @@ if ($SmokeTest) {
         exit 0
     }
 
-    $planSlug    = ($top.title -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-')
-    $claimBranch = if ($top.branch) { $top.branch } else { "$($cfg.branch_prefix)$($top.id)-$planSlug" }
-    Write-Host "  Selected: $claimBranch" -ForegroundColor Green
-    Write-Host "  Run implement:  pwsh ./.harness/run.ps1 -Issue $($top.id)" -ForegroundColor Yellow
-    exit 0
+    Write-Host "  Selected #$($top.id) — chaining into implement phase..." -ForegroundColor Green
+    & $PSCommandPath -Issue ([int]$top.id)
+    exit $LASTEXITCODE
 }
 
 if (-not (Test-Path $promptFile)) { Fail "Prompt file not found: $promptFile" }

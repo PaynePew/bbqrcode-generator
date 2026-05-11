@@ -2,9 +2,9 @@
 # Generic Docker agent harness entry point for Linux / macOS / CI.
 #
 # Usage:
-#   ./.harness/run.sh                  # plan → confirm → exit
-#   ./.harness/run.sh --plan           # plan only, print ranking
-#   ./.harness/run.sh --yes            # plan + auto-confirm top candidate
+#   ./.harness/run.sh                  # plan → confirm → implement
+#   ./.harness/run.sh --plan           # plan only, print ranking, no implement
+#   ./.harness/run.sh --yes            # plan + auto-confirm + implement top candidate
 #   ./.harness/run.sh --smoke-test
 #   ./.harness/run.sh --issue 28
 set -euo pipefail
@@ -209,9 +209,8 @@ if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
         exit 0
     fi
 
-    echo "  Claimed: $TOP_BRANCH"
-    echo "  Implement phase will create this branch in Slice 3."
-    exit 0
+    echo "  Selected #$TOP_ID — chaining into implement phase..."
+    exec "$HARNESS_ROOT/run.sh" --issue "$TOP_ID"
 fi
 
 # ── Select and render prompt (smoke-test / implement) ─────────────────────────
