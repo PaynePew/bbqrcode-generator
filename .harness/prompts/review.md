@@ -53,7 +53,7 @@ gh issue view {{ISSUE}}
    - Remove helpful abstractions
    - Refactor speculatively — only fix what is wrong now
 
-5. **Apply project standards** (substituted from `.harness/CODING_STANDARDS.md` if present; otherwise empty):
+5. **Apply project standards** (substituted from `.harness/CODING_STANDARDS.md` — copied per-project from the bundled `.example` template — if present; otherwise empty):
 
 {{CODING_STANDARDS_BLOCK}}
 

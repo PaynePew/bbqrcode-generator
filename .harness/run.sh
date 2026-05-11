@@ -82,7 +82,16 @@ echo "  All pre-flight checks passed."
 # ── Load config ────────────────────────────────────────────────────────────────
 
 step 'Loading config'
-load_config "$HARNESS_ROOT/config.yml"
+CONFIG_PATH="$HARNESS_ROOT/config.yml"
+if [[ ! -f "$CONFIG_PATH" ]]; then
+    EXAMPLE_PATH="$HARNESS_ROOT/config.yml.example"
+    if [[ -f "$EXAMPLE_PATH" ]]; then
+        fail "Missing $CONFIG_PATH." "cp $EXAMPLE_PATH $CONFIG_PATH   # then edit tracker.repo etc."
+    else
+        fail "Missing $CONFIG_PATH and no .example template found." "Create .harness/config.yml from scratch"
+    fi
+fi
+load_config "$CONFIG_PATH"
 IMAGE_NAME="$HARNESS_IMAGE"
 MARKER_PATH="$HARNESS_ROOT/.image-hash"
 echo "  image=$IMAGE_NAME  branch_prefix=$HARNESS_BRANCH_PREFIX"
@@ -112,9 +121,12 @@ if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
     IN_PROGRESS="${EXCL_LIST:-none}"
     echo "  In-progress: $IN_PROGRESS"
 
-    ADR_DIR="$REPO_ROOT/docs/adr"
+    ADR_DIR=""
+    if [[ -n "${HARNESS_DOCS_ADR_DIR:-}" ]]; then
+        ADR_DIR="$REPO_ROOT/$HARNESS_DOCS_ADR_DIR"
+    fi
     ADR_NAMES=""
-    if [[ -d "$ADR_DIR" ]]; then
+    if [[ -n "$ADR_DIR" && -d "$ADR_DIR" ]]; then
         ADR_NAMES=$(ls "$ADR_DIR"/*.md 2>/dev/null | xargs -n1 basename | tr '\n' ',' | sed 's/,$//')
     fi
 

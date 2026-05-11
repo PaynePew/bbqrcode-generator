@@ -278,7 +278,16 @@ Write-Host '  All pre-flight checks passed.' -ForegroundColor Green
 
 Step 'Loading config'
 try {
-    $cfg = Import-HarnessConfig -ConfigPath "$HarnessRoot/config.yml"
+    $configPath = "$HarnessRoot/config.yml"
+    if (-not (Test-Path $configPath)) {
+        $examplePath = "$HarnessRoot/config.yml.example"
+        if (Test-Path $examplePath) {
+            Fail "Missing $configPath." "cp $examplePath $configPath   # then edit tracker.repo etc."
+        } else {
+            Fail "Missing $configPath and no .example template found." "Create .harness/config.yml from scratch"
+        }
+    }
+    $cfg = Import-HarnessConfig -ConfigPath $configPath
 } catch {
     Fail "Config error: $_"
 }
@@ -380,8 +389,11 @@ if ($SmokeTest) {
     $excluded = Get-DeconflictExclusions -BranchPrefix $cfg.branch_prefix
     Write-Host "  In-progress: $(Format-Exclusions $excluded)" -ForegroundColor DarkGray
 
-    $adrDir   = "$RepoRoot/docs/adr"
-    $adrNames = if (Test-Path $adrDir) {
+    $adrDirRel = if ($cfg.ContainsKey('docs') -and $cfg.docs -is [hashtable] -and $cfg.docs.ContainsKey('adr_dir')) {
+        $cfg.docs.adr_dir
+    } else { '' }
+    $adrDir   = if ($adrDirRel) { Join-Path $RepoRoot $adrDirRel } else { '' }
+    $adrNames = if ($adrDir -and (Test-Path $adrDir)) {
         (Get-ChildItem $adrDir -Filter '*.md' | Select-Object -ExpandProperty Name) -join ', '
     } else { '' }
 

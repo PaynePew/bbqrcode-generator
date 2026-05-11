@@ -2,7 +2,7 @@
 
 A Docker-based runner that drives `claude` against a GitHub issue tracker using your **Claude subscription** (not an API key). One terminal, one issue at a time, four phases: plan → implement → review → merge.
 
-**Design rationale:** [PRD #27](https://github.com/PaynePew/qr_code_generator/issues/27) · [ADR 0008](../docs/adr/0008-generic-agent-harness.md)
+**Design rationale:** lives in the ADR/PRD of the repo that hosts this harness. <!-- TODO: link your own PRD / ADR here -->
 
 ---
 
@@ -168,14 +168,14 @@ pwsh ./.harness/run.ps1 -Issue 30 -Resume
 
 ## Config
 
-`.harness/config.yml` is loaded once per run. Required keys:
+Copy `.harness/config.yml.example` to `.harness/config.yml` and edit. The real `config.yml` is gitignored — each project keeps its own. Required keys:
 
 ```yaml
 image:          agent-harness:latest
-branch_prefix:  kanban-issue
+branch_prefix:  kanban-issue          # or feat-, issue-, anything consistent
 tracker:
   type:         github
-  repo:         PaynePew/qr_code_generator
+  repo:         <your-org>/<your-repo>
 ```
 
 Optional:
@@ -203,11 +203,12 @@ docs:
   prd_dir:      docs/prd
   adr_dir:      docs/adr
 
+# Replace with your project's actual test / typecheck commands.
 tests:
-  block:        pytest backend/ && npm test --prefix frontend
+  block:        <your test command>      # e.g. `pytest .`, `go test ./...`, `cargo test`
 
 typecheck:
-  block:        npm run typecheck --prefix frontend
+  block:        <your typecheck command> # e.g. `tsc --noEmit`, `mypy .`
 
 commit:
   style:        "Conventional Commits (feat/fix/test/docs/chore/refactor)"
