@@ -34,4 +34,10 @@ Describe 'Invoke-RenderPrompt' {
         Invoke-RenderPrompt -Template '' -Substitutions @{} |
             Should -Be ''
     }
+
+    It 'treats substitution values as literals (no regex back-reference interpretation)' {
+        # A value containing $1 / $& would corrupt under regex -replace; .Replace() is literal.
+        Invoke-RenderPrompt -Template 'msg: {{V}}' -Substitutions @{ V = 'Closes #1, see $&' } |
+            Should -Be 'msg: Closes #1, see $&'
+    }
 }

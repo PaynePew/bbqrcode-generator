@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # render_prompt TEMPLATE [KEY=VALUE ...]
-# Substitutes {{KEY}} placeholders; drops lines that resolve to empty.
+# Substitutes {{KEY}} placeholders; drops lines that resolve to whitespace-only.
 render_prompt() {
     local template="$1"
     shift || true
 
-    # Apply all KEY=VALUE substitutions
+    # Apply all KEY=VALUE substitutions (parameter expansion is literal, not regex).
     local result="$template"
     for kv in "$@"; do
         local key="${kv%%=*}"
@@ -13,11 +13,12 @@ render_prompt() {
         result="${result//\{\{$key\}\}/$val}"
     done
 
-    # Process line-by-line: strip remaining {{...}}, drop blank lines
     local output=""
     while IFS= read -r line; do
+        # Strip any remaining {{KEY}} placeholders (unmapped keys → empty).
         line=$(printf '%s' "$line" | sed 's/{{[A-Z_0-9]*}}//g')
-        if [[ -n "${line// }" ]]; then
+        # Match PS .Trim(): drop if line has no non-whitespace characters.
+        if [[ "$line" =~ [^[:space:]] ]]; then
             output+="${line}"$'\n'
         fi
     done <<< "$result"

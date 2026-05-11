@@ -38,4 +38,10 @@ Describe 'Test-ImageRebuildNeeded' {
         Test-ImageRebuildNeeded -DockerfilePath $script:Df -MarkerPath $script:Marker |
             Should -Be $true
     }
+
+    It 'returns true when ImageName is supplied and the image is missing locally' -Skip:(-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Save-ImageHash -DockerfilePath $script:Df -MarkerPath $script:Marker
+        Test-ImageRebuildNeeded -DockerfilePath $script:Df -MarkerPath $script:Marker -ImageName 'definitely-not-an-image-9b3c7d:nope' |
+            Should -Be $true
+    }
 }

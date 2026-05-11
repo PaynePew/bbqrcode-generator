@@ -81,7 +81,7 @@ echo "  image=$IMAGE_NAME  branch_prefix=$HARNESS_BRANCH_PREFIX"
 # ── Image cache check / rebuild ────────────────────────────────────────────────
 
 step 'Image cache check'
-if [[ "$(image_rebuild_needed "$HARNESS_ROOT/Dockerfile" "$MARKER_PATH")" == "true" ]]; then
+if [[ "$(image_rebuild_needed "$HARNESS_ROOT/Dockerfile" "$MARKER_PATH" "$IMAGE_NAME")" == "true" ]]; then
     echo "  Rebuilding image: $IMAGE_NAME"
     docker build -t "$IMAGE_NAME" -f "$HARNESS_ROOT/Dockerfile" "$REPO_ROOT"
     save_image_hash "$HARNESS_ROOT/Dockerfile" "$MARKER_PATH"
@@ -108,6 +108,7 @@ fi
 
 PROMPT_MOUNT="$HARNESS_ROOT/.current-prompt.md"
 printf '%s\n' "$RENDERED" > "$PROMPT_MOUNT"
+trap 'rm -f "$PROMPT_MOUNT"' EXIT
 
 # ── Run container ──────────────────────────────────────────────────────────────
 
@@ -115,16 +116,17 @@ step "Running $RUN_LABEL"
 echo "  Log → $LOG_FILE"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+# Pass the token by reference (no `=value`) so it doesn't appear in
+# the host process listing. Docker reads it from our environment.
 docker run --rm \
     --volume "${REPO_ROOT}:/workspace" \
-    --env    "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" \
+    --env    CLAUDE_CODE_OAUTH_TOKEN \
     --workdir /workspace \
     "$IMAGE_NAME" \
     bash -lc 'claude -p "$(cat /workspace/.harness/.current-prompt.md)"' \
     2>&1 | tee "$LOG_FILE"
 
 EXIT_CODE="${PIPESTATUS[0]}"
-rm -f "$PROMPT_MOUNT"
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 

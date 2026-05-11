@@ -87,7 +87,7 @@ Write-Host "  image=$imageName  branch_prefix=$($cfg.branch_prefix)" -Foreground
 # ── Image cache check / rebuild ────────────────────────────────────────────────
 
 Step 'Image cache check'
-if (Test-ImageRebuildNeeded -DockerfilePath "$HarnessRoot/Dockerfile" -MarkerPath $markerPath) {
+if (Test-ImageRebuildNeeded -DockerfilePath "$HarnessRoot/Dockerfile" -MarkerPath $markerPath -ImageName $imageName) {
     Write-Host "  Rebuilding image: $imageName" -ForegroundColor Yellow
     docker build -t $imageName -f "$HarnessRoot/Dockerfile" "$RepoRoot"
     if ($LASTEXITCODE -ne 0) { Fail 'docker build failed.' }
@@ -130,20 +130,23 @@ Write-Host "  Log → $logFile"
 $logDir = Split-Path $logFile -Parent
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory $logDir | Out-Null }
 
+# Pass the token by reference (no `=value`) so it doesn't appear in
+# the host process listing. Docker reads it from our environment.
 $dockerArgs = @(
     'run', '--rm',
     '--volume', "${RepoRoot}:/workspace",
-    '--env',    "CLAUDE_CODE_OAUTH_TOKEN=$env:CLAUDE_CODE_OAUTH_TOKEN",
+    '--env',    'CLAUDE_CODE_OAUTH_TOKEN',
     '--workdir', '/workspace',
     $imageName,
     'bash', '-lc', 'claude -p "$(cat /workspace/.harness/.current-prompt.md)"'
 )
 
-& docker @dockerArgs 2>&1 | Tee-Object -FilePath $logFile
-$exitCode = $LASTEXITCODE
-
-# Clean up temp prompt file
-Remove-Item -ErrorAction SilentlyContinue $promptMount
+try {
+    & docker @dockerArgs 2>&1 | Tee-Object -FilePath $logFile
+    $exitCode = $LASTEXITCODE
+} finally {
+    Remove-Item -ErrorAction SilentlyContinue $promptMount
+}
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 
