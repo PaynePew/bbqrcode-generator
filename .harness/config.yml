@@ -23,6 +23,9 @@ agents:
   review:
     model: claude-opus-4-7
     max_turns: 30
+  merge:
+    model: claude-sonnet-4-6
+    max_turns: 20
 
 docs:
   prd_dir: docs/prd

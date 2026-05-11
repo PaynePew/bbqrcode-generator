@@ -16,13 +16,16 @@
     matching branch exists. Cannot be used without -Issue.
 .PARAMETER SkipReview
     Skip the review phase after implement. The branch can still be merged.
+.PARAMETER SkipMerge
+    Skip the merge phase after review. Commits and review stay on the branch; no push, no PR.
 .EXAMPLE
-    pwsh ./.harness/run.ps1               # plan → confirm → implement → review
+    pwsh ./.harness/run.ps1               # plan → confirm → implement → review → merge
     pwsh ./.harness/run.ps1 -Plan         # plan only, print ranking, no implement
-    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm + implement + review
-    pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement + review #30
+    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm + implement + review + merge
+    pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement + review + merge #30
     pwsh ./.harness/run.ps1 -Issue 30 -Resume
     pwsh ./.harness/run.ps1 -Issue 30 -SkipReview
+    pwsh ./.harness/run.ps1 -Issue 30 -SkipMerge
     pwsh ./.harness/run.ps1 -SmokeTest
 #>
 [CmdletBinding()]
@@ -32,7 +35,8 @@ param(
     [switch]$SmokeTest,
     [int]$Issue,
     [switch]$Resume,
-    [switch]$SkipReview
+    [switch]$SkipReview,
+    [switch]$SkipMerge
 )
 
 Set-StrictMode -Version Latest
@@ -392,19 +396,17 @@ try {
     Remove-Item -ErrorAction SilentlyContinue $promptMount
 }
 
-# ── Summary ────────────────────────────────────────────────────────────────────
+# ── Implement result ───────────────────────────────────────────────────────────
 
-$ok     = $exitCode -eq 0
-$color  = if ($ok) { 'Green' } else { 'Red' }
-$status = if ($ok) { 'COMPLETE' } else { "FAILED (exit $exitCode)" }
+$ok          = $exitCode -eq 0
+$implStatus  = if ($ok) { 'COMPLETE' } else { "FAILED (exit $exitCode)" }
+$implOk      = $ok
 
-Write-Host ''
-Write-Host ('╔' + '═' * 50 + '╗') -ForegroundColor $color
-Write-Host ("║  $runLabel — $status".PadRight(51) + '║') -ForegroundColor $color
-Write-Host ('╚' + '═' * 50 + '╝') -ForegroundColor $color
-
-if ($ok -and $SmokeTest) {
+if (-not $ok -and $SmokeTest) {
+    Write-Host ''
+    Write-Host "  Smoke test FAILED (exit $exitCode)." -ForegroundColor Red
     Write-Host "  Log saved to: $logFile" -ForegroundColor DarkGray
+    exit $exitCode
 }
 
 # Rate-limit detection: surface a ready-made resume command
@@ -419,6 +421,9 @@ if (-not $ok -and $Issue -and (Test-Path $logFile)) {
 
 # ── Review phase ───────────────────────────────────────────────────────────────
 # Runs only after a successful implement run (Issue set, not SmokeTest, not SkipReview).
+
+$reviewOk     = $false
+$reviewStatus = '⊝ SKIPPED'
 
 if ($ok -and $Issue -and -not $SmokeTest -and -not $SkipReview) {
     $reviewModel    = $cfg.agents.review.model
@@ -483,24 +488,142 @@ if ($ok -and $Issue -and -not $SmokeTest -and -not $SkipReview) {
         Remove-Item -ErrorAction SilentlyContinue $reviewMount
     }
 
-    $reviewOk     = $reviewExit -eq 0
-    $reviewColor  = if ($reviewOk) { 'Green' } else { 'Yellow' }
-    $reviewStatus = if ($reviewOk) { 'COMPLETE' } else { "FAILED (exit $reviewExit)" }
-
-    Write-Host ''
-    Write-Host ('╔' + '═' * 50 + '╗') -ForegroundColor $reviewColor
-    Write-Host ("║  review #$Issue — $reviewStatus".PadRight(51) + '║') -ForegroundColor $reviewColor
-    Write-Host ('╚' + '═' * 50 + '╝') -ForegroundColor $reviewColor
-
-    if (-not $reviewOk) {
-        $reviewLog = Get-Content $reviewLogFile -Raw -ErrorAction SilentlyContinue
-        if ($reviewLog -match 'Rate limit exceeded|usage_limit_exceeded') {
-            Write-Host '  Rate limit hit during review. Re-run with -SkipReview to skip, or retry.' -ForegroundColor Yellow
+    $reviewOk = $reviewExit -eq 0
+    if ($reviewOk) {
+        $reviewStatus = '✓ COMPLETE'
+    } else {
+        $reviewStatus = "✗ FAILED (exit $reviewExit)"
+        if (Test-Path $reviewLogFile) {
+            $reviewLog = Get-Content $reviewLogFile -Raw -ErrorAction SilentlyContinue
+            if ($reviewLog -match 'Rate limit exceeded|usage_limit_exceeded') {
+                Write-Host '  Rate limit hit during review. Re-run with -SkipReview to skip, or retry.' -ForegroundColor Yellow
+            }
         }
     }
-} elseif ($Issue -and -not $SmokeTest -and $SkipReview) {
-    Write-Host ''
-    Write-Host '  Review phase skipped (-SkipReview).' -ForegroundColor DarkGray
 }
+
+# ── Merge phase ────────────────────────────────────────────────────────────────
+# Runs only after a successful review (Issue set, not SmokeTest, not SkipReview, not SkipMerge).
+
+$mergeOk     = $false
+$mergeStatus = '⊝ SKIPPED'
+$prUrl       = ''
+
+if ($reviewOk -and $Issue -and -not $SmokeTest -and -not $SkipMerge) {
+    $mergeModel    = $cfg.agents.merge.model
+    $mergeMaxTurns = $cfg.agents.merge.max_turns
+
+    Step 'Merge phase'
+    Write-Host "  model=$mergeModel  max_turns=$mergeMaxTurns" -ForegroundColor DarkGray
+
+    $testsBlock = if ($cfg.tests -is [hashtable]) { $cfg.tests.block } else { '' }
+
+    $mergeSubs = @{
+        ISSUE       = "$Issue"
+        BRANCH      = $branchName
+        REPO        = $cfg.tracker.repo
+        TESTS_BLOCK = $testsBlock
+    }
+
+    $mergePromptFile = "$HarnessRoot/prompts/merge.md"
+    if (-not (Test-Path $mergePromptFile)) { Fail "Merge prompt not found: $mergePromptFile" }
+
+    $renderedMerge = Invoke-RenderPrompt -Template (Get-Content $mergePromptFile -Raw) -Substitutions $mergeSubs
+    $mergeMount    = "$HarnessRoot/.current-prompt.md"
+    Set-Content -Path $mergeMount -Value $renderedMerge -Encoding UTF8
+
+    $mergeLogFile = "$HarnessRoot/logs/merge-$Issue-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    Write-Host "  Log → $mergeLogFile" -ForegroundColor DarkGray
+
+    $mergeCmd = "claude --output-format stream-json --model $mergeModel --max-turns $mergeMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $dockerMerge = @(
+        'run', '--rm',
+        '--volume', "${RepoRoot}:/workspace",
+        '--env',    'CLAUDE_CODE_OAUTH_TOKEN',
+        '--workdir', '/workspace',
+        $imageName,
+        'bash', '-lc', $mergeCmd
+    )
+
+    $mergeAccContent = [System.Text.StringBuilder]::new()
+    $mergeExit = -1
+    try {
+        & docker @dockerMerge 2>&1 | ForEach-Object {
+            Add-Content -Path $mergeLogFile -Value $_
+            Write-Host $_
+            try {
+                $ev = $_ | ConvertFrom-Json -AsHashtable
+                if ($ev.type -eq 'assistant' -and $ev.ContainsKey('message') -and $ev.message -is [hashtable] -and $ev.message.ContainsKey('content')) {
+                    foreach ($item in @($ev.message.content)) {
+                        if ($item -is [hashtable] -and $item.type -eq 'text' -and $item.ContainsKey('text')) {
+                            [void]$mergeAccContent.Append([string]$item.text)
+                        }
+                    }
+                }
+                if ($ev.type -eq 'result' -and $ev.ContainsKey('result')) { [void]$mergeAccContent.Append([string]$ev.result) }
+            } catch {
+                # Non-JSON line (preamble, error, etc.) — skip; raw line is in $mergeLogFile.
+            }
+        }
+        $mergeExit = $LASTEXITCODE
+    } finally {
+        Remove-Item -ErrorAction SilentlyContinue $mergeMount
+    }
+
+    $mergeOk = $mergeExit -eq 0
+    if ($mergeOk) {
+        $mergeStatus = '✓ COMPLETE'
+        # Extract PR URL from agent output. Bounded to owner/repo slug chars so
+        # trailing markdown punctuation (backticks, parens) is not captured.
+        if ($mergeAccContent.ToString() -match 'https://github\.com/[\w.-]+/[\w.-]+/pull/\d+') {
+            $prUrl = $Matches[0]
+        }
+    } else {
+        $mergeStatus = "✗ FAILED (exit $mergeExit)"
+    }
+} elseif ($Issue -and -not $SmokeTest -and $SkipMerge) {
+    Write-Host ''
+    Write-Host '  Merge phase skipped (-SkipMerge).' -ForegroundColor DarkGray
+}
+
+# ── Final summary box ──────────────────────────────────────────────────────────
+
+$anyFailed  = (-not $implOk) -or ($reviewStatus -like '✗*') -or ($mergeStatus -like '✗*')
+$finalColor = if ($anyFailed) { 'Red' } else { 'Green' }
+
+$implStatusLine   = if ($implOk) { "✓ COMPLETE" } else { "✗ $implStatus" }
+$reviewStatusLine = $reviewStatus
+$mergeStatusLine  = $mergeStatus
+
+Write-Host ''
+Write-Host ('╔' + '═' * 58 + '╗') -ForegroundColor $finalColor
+if ($Issue) {
+    Write-Host ("║  Pipeline result — issue #$Issue".PadRight(59) + '║') -ForegroundColor $finalColor
+} else {
+    Write-Host ("║  Pipeline result".PadRight(59) + '║') -ForegroundColor $finalColor
+}
+Write-Host ('╠' + '═' * 58 + '╣') -ForegroundColor $finalColor
+Write-Host ("║  implement : $implStatusLine".PadRight(59) + '║') -ForegroundColor $finalColor
+if ($Issue -and -not $SmokeTest) {
+    Write-Host ("║  review    : $reviewStatusLine".PadRight(59) + '║') -ForegroundColor $finalColor
+    Write-Host ("║  merge     : $mergeStatusLine".PadRight(59) + '║') -ForegroundColor $finalColor
+}
+Write-Host ('╠' + '═' * 58 + '╣') -ForegroundColor $finalColor
+if ($branchName) {
+    Write-Host ("║  branch    : $branchName".PadRight(59) + '║') -ForegroundColor $finalColor
+}
+Write-Host ("║  log       : $logFile".PadRight(59) + '║') -ForegroundColor $finalColor
+if ($prUrl) {
+    Write-Host ("║  PR        : $prUrl".PadRight(59) + '║') -ForegroundColor $finalColor
+}
+Write-Host ('╠' + '═' * 58 + '╣') -ForegroundColor $finalColor
+if ($anyFailed -and $Issue) {
+    Write-Host ("║  resume    : pwsh ./.harness/run.ps1 -Issue $Issue -Resume".PadRight(59) + '║') -ForegroundColor Yellow
+} elseif ($mergeOk -and $prUrl) {
+    Write-Host ('║  next      : merge the PR on GitHub to close the issue'.PadRight(59) + '║') -ForegroundColor $finalColor
+} elseif ($implOk -and -not $Issue) {
+    Write-Host ('║  next      : run with -Issue N to implement a specific issue'.PadRight(59) + '║') -ForegroundColor $finalColor
+}
+Write-Host ('╚' + '═' * 58 + '╝') -ForegroundColor $finalColor
 
 exit $exitCode
