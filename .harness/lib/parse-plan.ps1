@@ -7,13 +7,14 @@ function Invoke-ParsePlan {
     )
 
     # Find all <plan>...</plan> blocks; use the last one if multiple appear.
-    $matches = [regex]::Matches($Content, '(?s)<plan>(.*?)</plan>')
+    # Use $planMatches (not $matches) so we don't shadow the $Matches auto-variable.
+    $planMatches = [regex]::Matches($Content, '(?s)<plan>(.*?)</plan>')
 
-    if ($matches.Count -eq 0) {
+    if ($planMatches.Count -eq 0) {
         return @{ Error = 'No <plan> block found in content.' }
     }
 
-    $jsonText = $matches[$matches.Count - 1].Groups[1].Value.Trim()
+    $jsonText = $planMatches[$planMatches.Count - 1].Groups[1].Value.Trim()
 
     $plan = $null
     try {

@@ -206,8 +206,9 @@ if ($SmokeTest) {
         TYPECHECK_BLOCK = $typecheckBlock
         COMMIT_STYLE    = $commitStyle
     }
-} elseif ($Plan -or $Yes -or (-not $SmokeTest -and -not $Issue)) {
+} else {
     # ── Plan phase (bare run, -Plan, or -Yes) ─────────────────────────────────
+    # By elimination: neither -SmokeTest nor -Issue, so -Plan, -Yes, or bare.
     Step 'Plan phase'
 
     $planModel    = $cfg.agents.plan.model
@@ -240,9 +241,9 @@ if ($SmokeTest) {
     $promptMount = "$HarnessRoot/.current-prompt.md"
     Set-Content -Path $promptMount -Value $rendered -Encoding UTF8
 
-    $logFile = "$HarnessRoot/logs/plan-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
-    $logDir2 = Split-Path $logFile -Parent
-    if (-not (Test-Path $logDir2)) { New-Item -ItemType Directory $logDir2 | Out-Null }
+    $logFile    = "$HarnessRoot/logs/plan-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    $planLogDir = Split-Path $logFile -Parent
+    if (-not (Test-Path $planLogDir)) { New-Item -ItemType Directory $planLogDir | Out-Null }
 
     Write-RunHeader -IssueLabel '?' -Model $planModel -Branch '(pending)' -LogFile $logFile
     Write-Host "  max_turns=$planMaxTurns" -ForegroundColor DarkGray
@@ -269,7 +270,9 @@ if ($SmokeTest) {
                 if ($ev.type -eq 'assistant.text' -and $ev.ContainsKey('text')) { [void]$accContent.Append($ev.text) }
                 if ($ev.type -eq 'result'         -and $ev.ContainsKey('result')) { [void]$accContent.Append($ev.result) }
                 Write-HbLine -State $hbState
-            } catch { }
+            } catch {
+                # Non-JSON line (preamble, error, etc.) — skip; raw line is in $logFile.
+            }
         }
         $planExit = $LASTEXITCODE
     } finally {
@@ -329,13 +332,11 @@ if ($SmokeTest) {
     }
 
     # Branch creation is the atomic claim (deferred to Slice 3 implement).
-    $slug3      = ($top.title -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-')
-    $claimBranch = if ($top.branch) { $top.branch } else { "$($cfg.branch_prefix)$($top.id)-$slug3" }
+    $planSlug    = ($top.title -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-')
+    $claimBranch = if ($top.branch) { $top.branch } else { "$($cfg.branch_prefix)$($top.id)-$planSlug" }
     Write-Host "  Claimed: $claimBranch" -ForegroundColor Green
     Write-Host "  Implement phase will create this branch in Slice 3." -ForegroundColor DarkGray
     exit 0
-} else {
-    Fail 'Specify -SmokeTest, -Issue N, -Plan, or -Yes; or run bare for plan phase.'
 }
 
 if (-not (Test-Path $promptFile)) { Fail "Prompt file not found: $promptFile" }
