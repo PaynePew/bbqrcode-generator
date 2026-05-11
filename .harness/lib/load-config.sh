@@ -56,6 +56,13 @@ load_config() {
         return 1
     fi
 
+    # Match PS contract: reject tab indentation. Bash awk parsing would
+    # silently mis-locate nested keys under mixed tab/space indents.
+    if grep -q $'\t' "$config_path"; then
+        echo "ERROR: Tab indentation found in $config_path. Use spaces only." >&2
+        return 1
+    fi
+
     HARNESS_IMAGE=$(_yaml_top "$config_path" "image")
     HARNESS_BRANCH_PREFIX=$(_yaml_top "$config_path" "branch_prefix")
     HARNESS_TRACKER_TYPE=$(_yaml_nested "$config_path" "tracker" "type")

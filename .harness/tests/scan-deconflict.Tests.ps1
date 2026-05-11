@@ -64,4 +64,11 @@ Describe 'Get-DeconflictExclusions' {
         $result | Should -Contain 99
         $result | Should -Contain 7
     }
+
+    It 'matches remote-tracking refs by stripping the remote prefix' {
+        $result = Get-DeconflictExclusions -BranchPrefix 'kanban-issue' `
+            -LocalBranches @('origin/kanban-issue42-remote-feature') `
+            -GhPrListJson '[]'
+        $result | Should -Contain 42
+    }
 }

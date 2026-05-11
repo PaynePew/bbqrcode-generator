@@ -53,3 +53,12 @@ setup() {
     [ "$HARNESS_AGENT_PLAN_MODEL" = "claude-haiku-4-5" ]
     [ "$HARNESS_AGENT_PLAN_MAX_TURNS" = "5" ]
 }
+
+@test "rejects tab indentation" {
+    local tabconfig="${BATS_TMPDIR:-/tmp}/tab-config.yml"
+    printf 'image: foo\nbranch_prefix: bar\ntracker:\n\ttype: github\n' > "$tabconfig"
+    run load_config "$tabconfig"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"ab"* ]]
+    rm -f "$tabconfig"
+}

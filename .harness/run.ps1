@@ -261,6 +261,7 @@ if ($SmokeTest) {
         'bash', '-lc', $claudeCmd
     )
 
+    $planExit = -1
     try {
         & docker @dockerPlan 2>&1 | ForEach-Object {
             Add-Content -Path $logFile -Value $_
@@ -296,23 +297,25 @@ if ($SmokeTest) {
     $top = $pd.top
     Write-Host ''
     Write-Host '┌─ Plan ranking ──────────────────────────────────────────────┐' -ForegroundColor Cyan
-    Write-Host ("│  TOP  #$($top.id) — $($top.title)".PadRight(64) + '│') -ForegroundColor Green
-    Write-Host ("│       Branch : $($top.branch)".PadRight(64) + '│') -ForegroundColor DarkGray
-    Write-Host ("│       Reason : $($top.reason)".PadRight(64) + '│') -ForegroundColor DarkGray
-    Write-Host ("│       AC     : $($top.ac_count) items".PadRight(64) + '│') -ForegroundColor DarkGray
+    $boxW = 62  # inner width (between │ chars)
+    function Pad-BoxLine([string]$s) { if ($s.Length -gt $boxW) { $s = $s.Substring(0,$boxW-3) + '...' }; '│' + $s.PadRight($boxW) + '│' }
+    Write-Host (Pad-BoxLine "  TOP  #$($top.id) — $($top.title)") -ForegroundColor Green
+    Write-Host (Pad-BoxLine "       Branch : $($top.branch)") -ForegroundColor DarkGray
+    Write-Host (Pad-BoxLine "       Reason : $($top.reason)") -ForegroundColor DarkGray
+    Write-Host (Pad-BoxLine "       AC     : $($top.ac_count) items") -ForegroundColor DarkGray
     if ($pd.alternatives.Count -gt 0) {
-        Write-Host '│  ── Alternatives ───────────────────────────────────────────│' -ForegroundColor DarkGray
+        Write-Host (Pad-BoxLine "  ── Alternatives ────────────────────────────────────────────") -ForegroundColor DarkGray
         foreach ($alt in $pd.alternatives) {
-            Write-Host ("│  #$($alt.id) $($alt.title) — $($alt.reason)".PadRight(64) + '│') -ForegroundColor DarkGray
+            Write-Host (Pad-BoxLine "  #$($alt.id) $($alt.title) — $($alt.reason)") -ForegroundColor DarkGray
         }
     }
     if ($pd.blocked.Count -gt 0) {
-        Write-Host '│  ── Blocked ─────────────────────────────────────────────────│' -ForegroundColor DarkGray
+        Write-Host (Pad-BoxLine "  ── Blocked ─────────────────────────────────────────────────") -ForegroundColor DarkGray
         foreach ($b in $pd.blocked) {
-            Write-Host ("│  #$($b.id) $($b.title) (blocked by #$($b.blocked_by))".PadRight(64) + '│') -ForegroundColor Yellow
+            Write-Host (Pad-BoxLine "  #$($b.id) $($b.title) (blocked by #$($b.blocked_by))") -ForegroundColor Yellow
         }
     }
-    Write-Host '└─────────────────────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host '└──────────────────────────────────────────────────────────────┘' -ForegroundColor Cyan
     Write-Host ''
 
     if ($Plan) { exit 0 }
@@ -331,11 +334,10 @@ if ($SmokeTest) {
         exit 0
     }
 
-    # Branch creation is the atomic claim (deferred to Slice 3 implement).
     $planSlug    = ($top.title -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-')
     $claimBranch = if ($top.branch) { $top.branch } else { "$($cfg.branch_prefix)$($top.id)-$planSlug" }
-    Write-Host "  Claimed: $claimBranch" -ForegroundColor Green
-    Write-Host "  Implement phase will create this branch in Slice 3." -ForegroundColor DarkGray
+    Write-Host "  Selected: $claimBranch" -ForegroundColor Green
+    Write-Host "  Run implement:  pwsh ./.harness/run.ps1 -Issue $($top.id)" -ForegroundColor Yellow
     exit 0
 }
 
@@ -358,9 +360,9 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory $logDir | Out-Null 
 
 # Build the claude invocation. For implement runs, pass --model and --max-turns.
 $claudeInvocation = if ($implementModel -and $maxTurns) {
-    "claude --model $implementModel --max-turns $maxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    "claude --output-format stream-json --model $implementModel --max-turns $maxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
 } else {
-    'claude -p "$(cat /workspace/.harness/.current-prompt.md)"'
+    'claude --output-format stream-json -p "$(cat /workspace/.harness/.current-prompt.md)"'
 }
 
 # Pass the token by reference (no `=value`) so it doesn't appear in

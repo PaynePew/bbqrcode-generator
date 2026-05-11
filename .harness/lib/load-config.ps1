@@ -13,6 +13,9 @@ function Import-HarnessConfig {
 
     foreach ($line in (Get-Content $ConfigPath)) {
         if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
+        if ($line -match "`t") {
+            throw "Tab indentation found in $ConfigPath (line: '$($line.TrimEnd())'). Use spaces only."
+        }
 
         # L3: 4-space indent with value  (e.g. "    model: foo")
         if ($currentL1 -and $currentL2 -and $line -match '^    ([A-Za-z][A-Za-z0-9_-]*): *(.+)$') {
@@ -47,7 +50,7 @@ function Import-HarnessConfig {
     }
 
     foreach ($key in @('image', 'branch_prefix')) {
-        if (-not $config[$key]) {
+        if ([string]::IsNullOrWhiteSpace($config[$key])) {
             throw "Missing required config key '$key' in $ConfigPath."
         }
     }

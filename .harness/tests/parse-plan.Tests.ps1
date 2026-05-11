@@ -61,4 +61,11 @@ More trailing text after the block.
         $result = Invoke-ParsePlan -Content 'Just some text without a plan block.'
         $result.Error | Should -Not -BeNullOrEmpty
     }
+
+    It 'returns the correct top.id when alternatives appear before top in JSON' {
+        # JSON key ordering isn't guaranteed; verify ConvertFrom-Json reaches top.id directly.
+        $content = '<plan>{"alternatives":[{"id":99,"title":"alt"}],"top":{"id":7,"title":"main","branch":"b","reason":"r","ac_count":1},"blocked":[]}</plan>'
+        $result = Invoke-ParsePlan -Content $content
+        $result.Plan.top.id | Should -Be 7
+    }
 }

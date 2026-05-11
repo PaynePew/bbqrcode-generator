@@ -15,12 +15,13 @@ function Get-DeconflictExclusions {
 
     # ── Local branches ────────────────────────────────────────────────────────
     if ($null -eq $LocalBranches) {
-        $LocalBranches = (& git branch 2>&1) |
-            ForEach-Object { $_.Trim().TrimStart('* ') }
+        $LocalBranches = (& git branch -a --format='%(refname:short)' 2>&1)
     }
 
     foreach ($branch in $LocalBranches) {
-        if ($branch -match $pattern) {
+        # Strip remote-tracking prefix (e.g. "origin/kanban-issue42-foo" → "kanban-issue42-foo")
+        $localName = $branch -replace '^[^/]+/', ''
+        if ($localName -match $pattern) {
             [void]$excluded.Add([int]$Matches[1])
         }
         # Malformed / non-matching names silently skipped

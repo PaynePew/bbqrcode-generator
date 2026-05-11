@@ -40,4 +40,15 @@ Describe 'Invoke-RenderPrompt' {
         Invoke-RenderPrompt -Template 'msg: {{V}}' -Substitutions @{ V = 'Closes #1, see $&' } |
             Should -Be 'msg: Closes #1, see $&'
     }
+
+    It 'preserves genuine blank lines between content' {
+        Invoke-RenderPrompt -Template "A`n`nB" -Substitutions @{} |
+            Should -Be "A`n`nB"
+    }
+
+    It 'preserves a mixed-content line when its placeholder is empty' {
+        # "Run tests with: " label survives even when {{TESTS_BLOCK}} resolves to empty.
+        Invoke-RenderPrompt -Template "Run tests with: {{TESTS_BLOCK}}`nnext" -Substitutions @{ TESTS_BLOCK = '' } |
+            Should -Be "Run tests with: `nnext"
+    }
 }

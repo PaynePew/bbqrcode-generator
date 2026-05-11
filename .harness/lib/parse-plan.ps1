@@ -29,5 +29,18 @@ function Invoke-ParsePlan {
         }
     }
 
+    $top = $plan.top
+    if ($top -isnot [hashtable]) {
+        return @{ Error = "'top' must be an object in plan JSON." }
+    }
+    foreach ($field in @('id', 'title', 'branch', 'reason', 'ac_count')) {
+        if (-not $top.ContainsKey($field)) {
+            return @{ Error = "Missing required field 'top.$field' in plan JSON." }
+        }
+    }
+    if ([int]$top.id -le 0) {
+        return @{ Error = "'top.id' must be a positive integer in plan JSON." }
+    }
+
     return @{ Plan = $plan }
 }

@@ -35,3 +35,16 @@ setup() {
     result=$(render_prompt '')
     [ "$result" = "" ]
 }
+
+@test "preserves genuine blank lines between content" {
+    template="$(printf 'A\n\nB')"
+    result=$(render_prompt "$template")
+    [ "$result" = "$(printf 'A\n\nB')" ]
+}
+
+@test "preserves a line that is mixed content even when its placeholder is empty" {
+    # The "Run tests with: " line keeps its label even when {{TESTS_BLOCK}} is empty.
+    template="$(printf 'Run tests with: {{TESTS_BLOCK}}\nnext')"
+    result=$(render_prompt "$template" 'TESTS_BLOCK=')
+    [ "$result" = "$(printf 'Run tests with: \nnext')" ]
+}

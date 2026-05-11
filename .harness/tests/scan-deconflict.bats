@@ -58,3 +58,10 @@ setup() {
     [[ "$output" == *"99"* ]]
     [[ "$output" == *"7"* ]]
 }
+
+@test "matches remote-tracking refs by stripping the remote prefix" {
+    export SCAN_MOCK_BRANCHES="origin/kanban-issue42-remote-feature"
+    run scan_deconflict "kanban-issue" ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"42"* ]]
+}

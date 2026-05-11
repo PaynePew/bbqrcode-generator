@@ -185,10 +185,13 @@ if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
         exit 1
     }
 
-    # Render ranking (basic grep extraction — no jq)
-    TOP_ID=$(printf '%s' "$PLAN_JSON"   | grep -o '"id":[0-9]*'  | head -1 | sed 's/"id"://')
-    TOP_TITLE=$(printf '%s' "$PLAN_JSON" | grep -o '"title":"[^"]*"' | head -1 | sed 's/"title":"//;s/"//')
-    TOP_BRANCH=$(printf '%s' "$PLAN_JSON" | grep -o '"branch":"[^"]*"' | head -1 | sed 's/"branch":"//;s/"//')
+    # Extract top.* via parse-plan helpers — robust to JSON key ordering.
+    TOP_ID=$(parse_plan_top_id    "$PLAN_JSON") || {
+        echo "ERROR: Could not extract top.id from plan JSON. Raw log: $LOG_FILE" >&2
+        exit 1
+    }
+    TOP_TITLE=$(parse_plan_top_field  title  "$PLAN_JSON")
+    TOP_BRANCH=$(parse_plan_top_field branch "$PLAN_JSON")
 
     printf '\n\e[36m┌─ Plan ranking ─────────────────────────────────────────────┐\e[0m\n'
     printf '\e[32m│  TOP  #%s — %s\e[0m\n' "$TOP_ID" "$TOP_TITLE"

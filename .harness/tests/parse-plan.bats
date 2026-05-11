@@ -46,3 +46,17 @@ More trailing text.'
     [ "$status" -eq 0 ]
     [[ "$output" == *'"id":5'* ]]
 }
+
+@test "parse_plan_top_id extracts top.id even when alternatives appear first" {
+    local content='<plan>{"alternatives":[{"id":99,"title":"alt","branch":"x","reason":"y"}],"top":{"id":7,"title":"main","branch":"b","reason":"r","ac_count":1},"blocked":[]}</plan>'
+    local json
+    json=$(parse_plan "$content")
+    [ "$(parse_plan_top_id "$json")" = "7" ]
+}
+
+@test "parse_plan_top_field extracts a string scalar from top" {
+    local content='<plan>{"alternatives":[],"top":{"id":7,"title":"main","branch":"kanban-issue7-foo","reason":"r","ac_count":1},"blocked":[]}</plan>'
+    local json
+    json=$(parse_plan "$content")
+    [ "$(parse_plan_top_field branch "$json")" = "kanban-issue7-foo" ]
+}

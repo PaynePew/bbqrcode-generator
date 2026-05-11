@@ -64,4 +64,14 @@ Describe 'Import-HarnessConfig' {
         $cfg.agents.plan.model     | Should -Be 'claude-haiku-4-5'
         $cfg.agents.plan.max_turns | Should -Be '5'
     }
+
+    It 'rejects tab indentation' {
+        $tabFile = New-TemporaryFile
+        Set-Content -Path $tabFile -Value "image: foo`nbranch_prefix: bar`ntracker:`n`ttype: github" -NoNewline
+        try {
+            { Import-HarnessConfig -ConfigPath $tabFile } | Should -Throw '*ab*'
+        } finally {
+            Remove-Item $tabFile -ErrorAction SilentlyContinue
+        }
+    }
 }
