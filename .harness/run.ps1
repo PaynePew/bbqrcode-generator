@@ -422,9 +422,8 @@ if (-not $ok -and $Issue -and (Test-Path $logFile)) {
 # ── Review phase ───────────────────────────────────────────────────────────────
 # Runs only after a successful implement run (Issue set, not SmokeTest, not SkipReview).
 
-$reviewOk      = $false
-$reviewStatus  = '⊝ SKIPPED'
-$reviewLogFile = ''
+$reviewOk     = $false
+$reviewStatus = '⊝ SKIPPED'
 
 if ($ok -and $Issue -and -not $SmokeTest -and -not $SkipReview) {
     $reviewModel    = $cfg.agents.review.model
@@ -562,7 +561,9 @@ if ($reviewOk -and $Issue -and -not $SmokeTest -and -not $SkipMerge) {
                     }
                 }
                 if ($ev.type -eq 'result' -and $ev.ContainsKey('result')) { [void]$mergeAccContent.Append([string]$ev.result) }
-            } catch {}
+            } catch {
+                # Non-JSON line (preamble, error, etc.) — skip; raw line is in $mergeLogFile.
+            }
         }
         $mergeExit = $LASTEXITCODE
     } finally {
@@ -572,9 +573,9 @@ if ($reviewOk -and $Issue -and -not $SmokeTest -and -not $SkipMerge) {
     $mergeOk = $mergeExit -eq 0
     if ($mergeOk) {
         $mergeStatus = '✓ COMPLETE'
-        # Extract PR URL from agent output (looks like https://github.com/.../pull/N)
-        $mergeText = $mergeAccContent.ToString()
-        if ($mergeText -match 'https://github\.com/[^\s]+/pull/\d+') {
+        # Extract PR URL from agent output. Bounded to owner/repo slug chars so
+        # trailing markdown punctuation (backticks, parens) is not captured.
+        if ($mergeAccContent.ToString() -match 'https://github\.com/[\w.-]+/[\w.-]+/pull/\d+') {
             $prUrl = $Matches[0]
         }
     } else {
