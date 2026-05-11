@@ -2,7 +2,7 @@
 
 A Docker-based runner that drives `claude` against a GitHub issue tracker using your **Claude subscription** (not an API key). One terminal, one issue at a time, four phases: plan → implement → review → merge.
 
-**Design rationale:** [PRD #27](https://github.com/PaynePew/qr_code_generator/issues/27) · [ADR 0008](../docs/adr/0008-generic-agent-harness.md)
+**Design rationale:** lives in the ADR/PRD of the repo that hosts this harness. <!-- TODO: link your own PRD / ADR here -->
 
 ---
 

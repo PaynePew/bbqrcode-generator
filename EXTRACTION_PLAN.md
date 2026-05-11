@@ -113,7 +113,7 @@ Also check `load-config.Tests.ps1` and `load-config.bats` for assertions tied to
 
 **Commit:** `docs(harness): template-ize CODING_STANDARDS and remove qr-specific PRD link`
 
-**Status:** [ ] todo
+**Status:** [x] DONE — see next commit
 
 ---
 
