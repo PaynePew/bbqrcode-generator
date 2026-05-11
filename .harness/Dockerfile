@@ -1,14 +1,16 @@
-# QR generator agent harness
+# Generic agent harness — base image
 #
-# Base image with the toolchain every slice needs:
-# - Node 22 LTS (frontend build, claude CLI dependency)
-# - Python 3 + pip (backend pytest)
+# Toolchain every project we've seen needs:
+# - Node 22 LTS (also a hard dependency of the claude CLI install)
+# - Python 3 + pip (for projects that use it)
 # - git, gh CLI, jq (VCS + GitHub API + JSON wrangling)
-# - claude CLI (the agent runtime; uses OAuth from mounted credentials)
+# - claude CLI (the agent runtime; uses OAuth via env var)
 #
-# Project-level dependencies (npm install / pip install -r requirements.txt)
-# are NOT baked in. The orchestrator runs them per-container on startup so
-# the image stays generic across slices.
+# Project-level dependencies (npm install / pip install -r requirements.txt /
+# go mod download / etc.) are NOT baked in. The orchestrator runs them
+# per-container on startup so the image stays generic across projects.
+# Add language-specific toolchains by extending this file in your project's
+# fork or by maintaining a project-specific Dockerfile that FROMs this one.
 #
 # Patterns adopted from .sandcastle/Dockerfile:
 #   - Rename the base image's `node` user (UID 1000) to `agent` instead of

@@ -168,14 +168,14 @@ pwsh ./.harness/run.ps1 -Issue 30 -Resume
 
 ## Config
 
-`.harness/config.yml` is loaded once per run. Required keys:
+Copy `.harness/config.yml.example` to `.harness/config.yml` and edit. The real `config.yml` is gitignored — each project keeps its own. Required keys:
 
 ```yaml
 image:          agent-harness:latest
-branch_prefix:  kanban-issue
+branch_prefix:  kanban-issue          # or feat-, issue-, anything consistent
 tracker:
   type:         github
-  repo:         PaynePew/qr_code_generator
+  repo:         <your-org>/<your-repo>
 ```
 
 Optional:
@@ -203,11 +203,12 @@ docs:
   prd_dir:      docs/prd
   adr_dir:      docs/adr
 
+# Replace with your project's actual test / typecheck commands.
 tests:
-  block:        pytest backend/ && npm test --prefix frontend
+  block:        <your test command>      # e.g. `pytest .`, `go test ./...`, `cargo test`
 
 typecheck:
-  block:        npm run typecheck --prefix frontend
+  block:        <your typecheck command> # e.g. `tsc --noEmit`, `mypy .`
 
 commit:
   style:        "Conventional Commits (feat/fix/test/docs/chore/refactor)"

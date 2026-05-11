@@ -101,7 +101,7 @@ Also check `load-config.Tests.ps1` and `load-config.bats` for assertions tied to
 
 **Commit:** `chore(harness): generic-ize Dockerfile comments and example commands`
 
-**Status:** [ ] todo
+**Status:** [x] DONE — see next commit
 
 ---
 
