@@ -342,7 +342,7 @@ if ($SmokeTest) {
     $hbState    = @{ turns = 0; elapsed_s = 0; last_action = '' }
     $accContent = [System.Text.StringBuilder]::new()
 
-    $claudeCmd = "claude --output-format stream-json --model $planModel --max-turns $planMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $claudeCmd = "claude --output-format stream-json --verbose --model $planModel --max-turns $planMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
     $dockerPlan = @(
         'run', '--rm',
         '--volume', "${RepoRoot}:/workspace",
@@ -461,9 +461,9 @@ if (-not (Test-Path $logDir)) { New-Item -ItemType Directory $logDir | Out-Null 
 
 # Build the claude invocation. For implement runs, pass --model and --max-turns.
 $claudeInvocation = if ($implementModel -and $maxTurns) {
-    "claude --output-format stream-json --model $implementModel --max-turns $maxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    "claude --output-format stream-json --verbose --model $implementModel --max-turns $maxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
 } else {
-    'claude --output-format stream-json -p "$(cat /workspace/.harness/.current-prompt.md)"'
+    'claude --output-format stream-json --verbose -p "$(cat /workspace/.harness/.current-prompt.md)"'
 }
 
 # Pass the token by reference (no `=value`) so it doesn't appear in
@@ -555,7 +555,7 @@ if ($ok -and $Issue -and -not $SmokeTest -and -not $SkipReview) {
     $reviewLogFile = "$HarnessRoot/logs/review-$Issue-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     Write-Host "  Log → $reviewLogFile" -ForegroundColor DarkGray
 
-    $reviewCmd = "claude --output-format stream-json --model $reviewModel --max-turns $reviewMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $reviewCmd = "claude --output-format stream-json --verbose --model $reviewModel --max-turns $reviewMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
     $dockerReview = @(
         'run', '--rm',
         '--volume', "${RepoRoot}:/workspace",
@@ -620,7 +620,7 @@ if ($reviewOk -and $Issue -and -not $SmokeTest -and -not $SkipMerge) {
     $mergeLogFile = "$HarnessRoot/logs/merge-$Issue-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
     Write-Host "  Log → $mergeLogFile" -ForegroundColor DarkGray
 
-    $mergeCmd = "claude --output-format stream-json --model $mergeModel --max-turns $mergeMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $mergeCmd = "claude --output-format stream-json --verbose --model $mergeModel --max-turns $mergeMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
     $dockerMerge = @(
         'run', '--rm',
         '--volume', "${RepoRoot}:/workspace",

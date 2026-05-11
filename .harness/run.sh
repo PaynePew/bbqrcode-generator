@@ -144,7 +144,7 @@ if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
     export HB_TURNS=0 HB_ELAPSED_S=0 HB_LAST_ACTION=""
     LAST_HB=""
 
-    claude_cmd="claude --output-format stream-json --model $PLAN_MODEL --max-turns $PLAN_MAX_TURNS -p \"\$(cat /workspace/.harness/.current-prompt.md)\""
+    claude_cmd="claude --output-format stream-json --verbose --model $PLAN_MODEL --max-turns $PLAN_MAX_TURNS -p \"\$(cat /workspace/.harness/.current-prompt.md)\""
 
     # parse_plan reads the full log file later (which embeds the <plan>
     # block inside the result event), so we don't accumulate content here.
