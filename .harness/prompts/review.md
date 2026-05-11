@@ -1,87 +1,103 @@
-You are an autonomous **review agent** working on the `qr_code_generator` repository inside a Docker container.
+# TASK
 
-A previous implementation agent produced commits on branch `{{BRANCH}}` (target: `{{TARGET_BRANCH}}`). Your job is to **review and refine** that work — improve clarity, consistency, and maintainability **while preserving exact functionality**.
+Review the code changes on branch `{{BRANCH}}` (target: `{{TARGET_BRANCH}}`) for issue **#{{ISSUE}}** and improve clarity, consistency, and maintainability **while preserving exact functionality**.
 
-## Inputs
+# CONTEXT
 
-Run these to build context:
+## Branch diff
 
 ```bash
 git checkout {{BRANCH}}
 git diff {{TARGET_BRANCH}}...{{BRANCH}}
+```
+
+## Commits on this branch
+
+```bash
 git log {{TARGET_BRANCH}}..{{BRANCH}} --oneline
 ```
 
-Also load:
-
-- `/workspace/.harness/CODING_STANDARDS.md` — review rubric
-- `/workspace/CONTEXT.md` — domain glossary; flag any drift from canonical terms
-- `/workspace/docs/adr/` — flag any change that contradicts a recorded decision
-
-If the branch references an issue (e.g. `slice-7-...`), also read the issue body to confirm intent:
+## Issue intent
 
 ```bash
-gh issue view 7
+gh issue view {{ISSUE}}
 ```
 
-## Review process
+## Domain references (load lazily, only when relevant)
 
-1. **Understand intent.** Read the diff and commit messages. What problem was the implementer solving? What does the issue's AC require?
+- Domain glossary: `{{DOCS_CONTEXT}}` — flag drift from canonical terms
+- ADR directory: `{{DOCS_ADR_DIR}}` — flag any change that contradicts a recorded decision
 
-2. **Check correctness first.** Cheaper to fix than to refactor on top of a bug.
+# REVIEW PROCESS
+
+1. **Understand the change.** Read the diff and commit messages. What is the implementer solving? What does the issue's AC require?
+
+2. **Check correctness first** (cheaper to fix than to refactor on top of a bug):
    - Does the implementation match the AC and PRD intent?
-   - Are edge cases handled? (empty inputs, error responses, network failures)
+   - Are edge cases handled (empty inputs, error responses, network failures)?
    - Are new/changed behaviors covered by tests?
-   - Any unsafe casts (`as any`, `// @ts-ignore`), unchecked nulls, swallowed errors?
-   - Any injection risk, credential leakage, secrets hardcoded?
+   - Any unsafe casts (`as any`, `// @ts-ignore`, `# type: ignore`) without inline justification?
+   - Any unchecked nulls or swallowed errors?
+   - Any injection risk, credential leakage, or hardcoded secrets?
 
-3. **Then look for clarity wins.**
+3. **Then look for clarity wins**:
    - Unnecessary complexity, deep nesting, redundant abstractions
    - Names that don't match what the thing does
-   - Comments that paraphrase obvious code (delete) vs. WHY-comments (keep)
-   - Nested ternaries — prefer if/else chains
+   - Comments that paraphrase obvious code (delete) — keep only WHY-comments
+   - Nested ternaries — prefer `if/else` chains
    - Over-clever one-liners — prefer explicit code
 
-4. **Maintain balance.** Do *not*:
-   - Over-simplify to the point of obscurity
+4. **Maintain balance.** Do not:
+   - Over-simplify to obscurity
    - Combine too many concerns into one function
    - Remove helpful abstractions
    - Refactor speculatively — only fix what is wrong now
 
-5. **Apply project standards.** Follow `/workspace/.harness/CODING_STANDARDS.md`.
+5. **Apply project standards** (substituted from `.harness/CODING_STANDARDS.md` if present; otherwise empty):
 
-6. **Preserve functionality.** Never change WHAT the code does — only HOW. All original outputs and behaviors must remain intact. If a behavior change is needed, flag it for the human and **do not** make the change yourself.
+{{CODING_STANDARDS_BLOCK}}
 
-## Execution
+6. **Preserve functionality.** Never change WHAT the code does — only HOW. All original outputs and behaviors must remain intact. If a behavior change is needed, flag it for the human and do NOT make the change yourself.
 
-If you find improvements:
+# EXECUTION
+
+If you find improvements to make:
 
 1. Make changes directly on `{{BRANCH}}`.
-2. Run tests + typecheck after each meaningful change:
-   - `npm test --prefix frontend`
-   - `npm run typecheck --prefix frontend`
-   - `pytest backend/` (if backend was touched)
-3. Commit with `refactor:` prefix and a clear message describing the refinement. One logical change per commit.
+2. Run tests + typecheck after each meaningful change.
+3. Commit with `refactor:` prefix and a clear message. One logical change per commit.
 
-If the code is clean and well-structured, do nothing — output `<promise>COMPLETE — no changes needed</promise>` and exit.
+If the code is already clean and well-structured, do nothing.
 
-## Stop conditions
+# COMPLETION
 
-You are done when:
+When done, post a structured review comment then exit:
 
-- All correctness concerns are either fixed or explicitly flagged in your final summary
-- Any refactors you made still leave tests + typecheck green
-- The branch has a clean working tree (no untracked / unstaged files)
-- You have printed a final summary to stdout containing:
-  - **Changes made:** list of refactor commits, or "none"
-  - **Concerns flagged for human:** correctness or scope issues you chose not to fix
-  - **Test results:** pass/fail counts
-  - **Standards drift:** any rule from CODING_STANDARDS.md the branch violates that you couldn't safely fix
+```bash
+gh issue comment {{ISSUE}} --body-file - <<'EOF'
+## Review report
 
-When all stop conditions are met, output `<promise>COMPLETE</promise>` and exit.
+**Branch:** {{BRANCH}}
+**Status:** COMPLETE
 
-## Hard rules
+### Changes made
+<!-- list of refactor commits, or "none" -->
+
+### Concerns flagged for human
+<!-- correctness or scope issues not safely fixed by this agent -->
+
+### Test results
+<!-- pass/fail counts -->
+
+### Standards drift
+<!-- rules violated but not fixed, with file:line references -->
+EOF
+```
+
+Output `<promise>COMPLETE</promise>` and exit.
+
+# HARD RULES
 
 - Do NOT push, do NOT modify `{{TARGET_BRANCH}}`, do NOT close the issue, do NOT touch `.harness/`, `.sandcastle/`, `.claude/`.
-- Do NOT introduce new features or expand scope. If you think something is missing, flag it for the human.
-- Do NOT rewrite history (no `git rebase`, no `git commit --amend`). Add new commits.
+- Do NOT introduce new features or expand scope. Flag anything missing for the human.
+- Do NOT rewrite history (`git rebase`, `git commit --amend` are forbidden). Add new commits only.
