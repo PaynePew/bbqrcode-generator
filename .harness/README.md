@@ -233,11 +233,19 @@ The wrapper checks prerequisites before starting any agent. Common failures:
 
 ### Hooks not firing
 
-Hooks are defined in the agent prompt templates (`prompts/plan.md`, `prompts/implement.md`, etc.) and only run inside the container. If a hook that you expected to run did not:
+Hooks are bash scripts in `.harness/hooks/` that run **on the host**, not inside the container. The wrapper invokes them at fixed lifecycle points around the implement phase:
 
-1. Check the log file: `.harness/logs/issue-{N}.log` (full container stdout).
-2. Verify the hook script exists in the project and is executable.
-3. Confirm `hooks` keys in `config.yml` reference paths relative to `/workspace` (the container mount point), not the host path.
+| Hook | Fires |
+|---|---|
+| `before-tests.sh` | Before the implement container starts (skipped for smoke-test runs). |
+| `after-implement.sh` | After the implement container exits (success or failure). |
+
+If a hook did not fire:
+
+1. Confirm the script lives at `.harness/hooks/<name>.sh` and matches the expected name above.
+2. Confirm the script is readable by the user running the wrapper. Hooks are invoked via `bash <path>`, so the executable bit is not required, but bash must be on `PATH`.
+3. Check the wrapper's stdout for the line `WARNING: hook '<name>' exited <code>` — non-zero hook exits do not abort the run, only warn.
+4. Hooks receive context via environment variables: `HARNESS_ISSUE`, `HARNESS_BRANCH`, `HARNESS_PHASE`. Read these inside the script — no positional arguments are passed.
 
 ### Log file location
 
