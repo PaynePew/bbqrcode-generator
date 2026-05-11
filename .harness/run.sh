@@ -2,6 +2,9 @@
 # Generic Docker agent harness entry point for Linux / macOS / CI.
 #
 # Usage:
+#   ./.harness/run.sh                  # plan → confirm → exit
+#   ./.harness/run.sh --plan           # plan only, print ranking
+#   ./.harness/run.sh --yes            # plan + auto-confirm top candidate
 #   ./.harness/run.sh --smoke-test
 #   ./.harness/run.sh --issue 28
 set -euo pipefail
@@ -15,6 +18,12 @@ source "$HARNESS_ROOT/lib/load-config.sh"
 source "$HARNESS_ROOT/lib/render-prompt.sh"
 # shellcheck source=lib/image-cache.sh
 source "$HARNESS_ROOT/lib/image-cache.sh"
+# shellcheck source=lib/heartbeat.sh
+source "$HARNESS_ROOT/lib/heartbeat.sh"
+# shellcheck source=lib/parse-plan.sh
+source "$HARNESS_ROOT/lib/parse-plan.sh"
+# shellcheck source=lib/scan-deconflict.sh
+source "$HARNESS_ROOT/lib/scan-deconflict.sh"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -29,20 +38,20 @@ step() { printf '\e[36m── %s \e[90m%s\e[0m\n' "$1" "$(printf '%.0s─' {1..4
 # ── Args ───────────────────────────────────────────────────────────────────────
 
 SMOKE_TEST=false
+PLAN_ONLY=false
+AUTO_YES=false
 ISSUE_NUMBER=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --smoke-test) SMOKE_TEST=true ;;
+        --plan)       PLAN_ONLY=true ;;
+        --yes)        AUTO_YES=true ;;
         --issue)      shift; ISSUE_NUMBER="$1" ;;
-        *) fail "Unknown argument: $1. Use --smoke-test or --issue N." ;;
+        *) fail "Unknown argument: $1. Use --smoke-test, --plan, --yes, or --issue N." ;;
     esac
     shift
 done
-
-if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
-    fail "Specify --smoke-test or --issue N."
-fi
 
 # ── Pre-flight checks ──────────────────────────────────────────────────────────
 
@@ -90,7 +99,124 @@ else
     echo "  Image up-to-date — no rebuild needed."
 fi
 
-# ── Select and render prompt ───────────────────────────────────────────────────
+# ── Plan phase (bare, --plan, --yes) ──────────────────────────────────────────
+
+if ! $SMOKE_TEST && [[ -z "$ISSUE_NUMBER" ]]; then
+    step 'Plan phase'
+
+    PLAN_MODEL="$HARNESS_AGENT_PLAN_MODEL"
+    PLAN_MAX_TURNS="$HARNESS_AGENT_PLAN_MAX_TURNS"
+
+    # Deconflict: collect in-progress issue numbers
+    EXCL_LIST=$(scan_deconflict "$HARNESS_BRANCH_PREFIX" 2>/dev/null | sort -u | tr '\n' ',' | sed 's/,$//')
+    IN_PROGRESS="${EXCL_LIST:-none}"
+    echo "  In-progress: $IN_PROGRESS"
+
+    ADR_DIR="$REPO_ROOT/docs/adr"
+    ADR_NAMES=""
+    if [[ -d "$ADR_DIR" ]]; then
+        ADR_NAMES=$(ls "$ADR_DIR"/*.md 2>/dev/null | xargs -n1 basename | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    TRACKER_REPO="$HARNESS_TRACKER_REPO"
+    LABEL_FLAG=""  # populated if tracker.filter_label is set in future
+
+    PLAN_FILE="$HARNESS_ROOT/prompts/plan.md"
+    [[ -f "$PLAN_FILE" ]] || fail "Plan prompt not found: $PLAN_FILE"
+
+    RENDERED=$(render_prompt "$(cat "$PLAN_FILE")" \
+        "REPO=$TRACKER_REPO" \
+        "BRANCH_PREFIX=$HARNESS_BRANCH_PREFIX" \
+        "IN_PROGRESS_LIST=$IN_PROGRESS" \
+        "ADR_FILENAMES=$ADR_NAMES" \
+        "TRACKER_LABEL_FLAG=$LABEL_FLAG")
+
+    PROMPT_MOUNT="$HARNESS_ROOT/.current-prompt.md"
+    printf '%s\n' "$RENDERED" > "$PROMPT_MOUNT"
+    trap 'rm -f "$PROMPT_MOUNT"' EXIT
+
+    LOG_FILE="$HARNESS_ROOT/logs/plan-$(date +%Y%m%d-%H%M%S).log"
+    mkdir -p "$(dirname "$LOG_FILE")"
+
+    printf '\e[36mIssue: ?  Agent: %s  Branch: (pending)  Log: %s\e[0m\n' "$PLAN_MODEL" "$LOG_FILE"
+    echo "  max_turns=$PLAN_MAX_TURNS"
+
+    export HB_TURNS=0 HB_ELAPSED_S=0 HB_LAST_ACTION=""
+    ALL_CONTENT=""
+    LAST_HB=""
+
+    claude_cmd="claude --output-format stream-json --model $PLAN_MODEL --max-turns $PLAN_MAX_TURNS -p \"\$(cat /workspace/.harness/.current-prompt.md)\""
+
+    while IFS= read -r line; do
+        echo "$line" >> "$LOG_FILE"
+        event_type=$(printf '%s' "$line" | grep -o '"type":"[^"]*"' | head -1 | sed 's/"type":"//;s/"//' 2>/dev/null || true)
+        if [[ -n "$event_type" ]]; then
+            heartbeat_reduce "$line"
+            hb_line="  [turns=$HB_TURNS elapsed=${HB_ELAPSED_S}s action=$HB_LAST_ACTION]"
+            if [[ -n "$LAST_HB" ]]; then printf '\e[1A\e[2K'; fi
+            echo "$hb_line"
+            LAST_HB="$hb_line"
+            # Accumulate text
+            if [[ "$event_type" == "assistant.text" ]] || [[ "$event_type" == "result" ]]; then
+                text=$(printf '%s' "$line" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"//' 2>/dev/null || true)
+                ALL_CONTENT="${ALL_CONTENT}${text}"
+            fi
+        fi
+    done < <(docker run --rm \
+        --volume "${REPO_ROOT}:/workspace" \
+        --env    CLAUDE_CODE_OAUTH_TOKEN \
+        --workdir /workspace \
+        "$IMAGE_NAME" \
+        bash -lc "$claude_cmd" 2>&1)
+
+    PLAN_EXIT="${PIPESTATUS[0]:-0}"
+
+    if [[ -n "$LAST_HB" ]]; then printf '\e[1A\e[2K'; fi
+    echo "  Plan agent complete."
+
+    if [[ "${PLAN_EXIT}" -ne 0 ]]; then
+        echo "ERROR: Plan agent failed (exit ${PLAN_EXIT})." >&2
+        exit "${PLAN_EXIT}"
+    fi
+
+    # Parse <plan> block from accumulated log content
+    PLAN_JSON=$(parse_plan "$(cat "$LOG_FILE")" 2>/dev/null) || {
+        echo "ERROR: Could not parse plan output. Raw log: $LOG_FILE" >&2
+        exit 1
+    }
+
+    # Render ranking (basic grep extraction — no jq)
+    TOP_ID=$(printf '%s' "$PLAN_JSON"   | grep -o '"id":[0-9]*'  | head -1 | sed 's/"id"://')
+    TOP_TITLE=$(printf '%s' "$PLAN_JSON" | grep -o '"title":"[^"]*"' | head -1 | sed 's/"title":"//;s/"//')
+    TOP_BRANCH=$(printf '%s' "$PLAN_JSON" | grep -o '"branch":"[^"]*"' | head -1 | sed 's/"branch":"//;s/"//')
+
+    printf '\n\e[36m┌─ Plan ranking ─────────────────────────────────────────────┐\e[0m\n'
+    printf '\e[32m│  TOP  #%s — %s\e[0m\n' "$TOP_ID" "$TOP_TITLE"
+    printf '\e[90m│       Branch: %s\e[0m\n' "$TOP_BRANCH"
+    printf '\e[36m└────────────────────────────────────────────────────────────┘\e[0m\n\n'
+
+    $PLAN_ONLY && exit 0
+
+    if $AUTO_YES; then
+        echo "  Auto-confirming #$TOP_ID ($TOP_TITLE)..."
+        CONFIRMED=true
+    else
+        printf 'Run #%s — %s? [Y/n] ' "$TOP_ID" "$TOP_TITLE"
+        read -r ans
+        case "${ans:-Y}" in [Yy]*) CONFIRMED=true ;; *) CONFIRMED=false ;; esac
+    fi
+
+    if ! $CONFIRMED; then
+        echo "  Exiting — no branch created."
+        exit 0
+    fi
+
+    echo "  Claimed: $TOP_BRANCH"
+    echo "  Implement phase will create this branch in Slice 3."
+    exit 0
+fi
+
+# ── Select and render prompt (smoke-test / implement) ─────────────────────────
 
 if $SMOKE_TEST; then
     PROMPT_FILE="$HARNESS_ROOT/prompts/smoke-test.md"

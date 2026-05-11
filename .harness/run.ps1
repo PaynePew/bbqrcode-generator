@@ -2,6 +2,10 @@
 <#
 .SYNOPSIS
     Generic Docker agent harness entry point for Windows / PowerShell.
+.PARAMETER Plan
+    Run the plan phase only; print ranked candidates and exit.
+.PARAMETER Yes
+    Auto-confirm the top candidate from the plan phase (skip the Y/n prompt).
 .PARAMETER SmokeTest
     Run the smoke-test prompt (validates plumbing without spending agent tokens).
 .PARAMETER Issue
@@ -10,12 +14,17 @@
     Resume implement on an existing branch for the given -Issue. Fails if no
     matching branch exists. Cannot be used without -Issue.
 .EXAMPLE
-    pwsh ./.harness/run.ps1 -SmokeTest
-    pwsh ./.harness/run.ps1 -Issue 30
+    pwsh ./.harness/run.ps1               # plan → confirm → exit
+    pwsh ./.harness/run.ps1 -Plan         # plan only, print ranking
+    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm top candidate
+    pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement #30
     pwsh ./.harness/run.ps1 -Issue 30 -Resume
+    pwsh ./.harness/run.ps1 -SmokeTest
 #>
 [CmdletBinding()]
 param(
+    [switch]$Plan,
+    [switch]$Yes,
     [switch]$SmokeTest,
     [int]$Issue,
     [switch]$Resume
@@ -31,6 +40,43 @@ $RepoRoot    = Split-Path $HarnessRoot -Parent
 . "$HarnessRoot/lib/render-prompt.ps1"
 . "$HarnessRoot/lib/image-cache.ps1"
 . "$HarnessRoot/lib/branch-claim.ps1"
+. "$HarnessRoot/lib/heartbeat.ps1"
+. "$HarnessRoot/lib/parse-plan.ps1"
+. "$HarnessRoot/lib/scan-deconflict.ps1"
+
+# ── Terminal rendering helpers ─────────────────────────────────────────────────
+
+$script:AnsiOk = $false
+try { $script:AnsiOk = [bool]$Host.UI.RawUI.SupportsVirtualTerminal } catch {}
+$script:HbVisible = $false
+
+function Write-RunHeader([string]$IssueLabel, [string]$Model, [string]$Branch, [string]$LogFile) {
+    Write-Host "Issue: $IssueLabel  Agent: $Model  Branch: $Branch  Log: $LogFile" -ForegroundColor Cyan
+}
+
+function Write-HbLine([hashtable]$State) {
+    $line = "  [turns=$($State.turns) elapsed=$($State.elapsed_s)s action=$($State.last_action)]"
+    if ($script:AnsiOk -and $script:HbVisible) {
+        Write-Host "`e[1A`e[2K$line"
+    } else {
+        Write-Host $line
+    }
+    $script:HbVisible = $true
+}
+
+function Close-HbLine([string]$Msg, [string]$Color = 'Green') {
+    if ($script:AnsiOk -and $script:HbVisible) {
+        Write-Host "`e[1A`e[2K$Msg" -ForegroundColor $Color
+    } else {
+        Write-Host $Msg -ForegroundColor $Color
+    }
+    $script:HbVisible = $false
+}
+
+function Format-Exclusions([System.Collections.Generic.HashSet[int]]$Set) {
+    if ($Set.Count -eq 0) { return 'none' }
+    ($Set | Sort-Object | ForEach-Object { "#$_" }) -join ', '
+}
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -158,8 +204,136 @@ if ($SmokeTest) {
         TYPECHECK_BLOCK = $typecheckBlock
         COMMIT_STYLE    = $commitStyle
     }
+} elseif ($Plan -or $Yes -or (-not $SmokeTest -and -not $Issue)) {
+    # ── Plan phase (bare run, -Plan, or -Yes) ─────────────────────────────────
+    Step 'Plan phase'
+
+    $planModel    = $cfg.agents.plan.model
+    $planMaxTurns = $cfg.agents.plan.max_turns
+
+    $excluded = Get-DeconflictExclusions -BranchPrefix $cfg.branch_prefix
+    Write-Host "  In-progress: $(Format-Exclusions $excluded)" -ForegroundColor DarkGray
+
+    $adrDir   = "$RepoRoot/docs/adr"
+    $adrNames = if (Test-Path $adrDir) {
+        (Get-ChildItem $adrDir -Filter '*.md' | Select-Object -ExpandProperty Name) -join ', '
+    } else { '' }
+
+    $labelFlag = if ($cfg.tracker -is [hashtable] -and $cfg.tracker['filter_label']) {
+        "--label '$($cfg.tracker.filter_label)'"
+    } else { '' }
+
+    $planSubs = @{
+        REPO               = $cfg.tracker.repo
+        BRANCH_PREFIX      = $cfg.branch_prefix
+        IN_PROGRESS_LIST   = Format-Exclusions $excluded
+        ADR_FILENAMES      = $adrNames
+        TRACKER_LABEL_FLAG = $labelFlag
+    }
+
+    $planFile = "$HarnessRoot/prompts/plan.md"
+    if (-not (Test-Path $planFile)) { Fail "Plan prompt not found: $planFile" }
+
+    $rendered    = Invoke-RenderPrompt -Template (Get-Content $planFile -Raw) -Substitutions $planSubs
+    $promptMount = "$HarnessRoot/.current-prompt.md"
+    Set-Content -Path $promptMount -Value $rendered -Encoding UTF8
+
+    $logFile = "$HarnessRoot/logs/plan-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    $logDir2 = Split-Path $logFile -Parent
+    if (-not (Test-Path $logDir2)) { New-Item -ItemType Directory $logDir2 | Out-Null }
+
+    Write-RunHeader -IssueLabel '?' -Model $planModel -Branch '(pending)' -LogFile $logFile
+    Write-Host "  max_turns=$planMaxTurns" -ForegroundColor DarkGray
+
+    $hbState    = @{ turns = 0; elapsed_s = 0; last_action = '' }
+    $accContent = [System.Text.StringBuilder]::new()
+
+    $claudeCmd = "claude --output-format stream-json --model $planModel --max-turns $planMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $dockerPlan = @(
+        'run', '--rm',
+        '--volume', "${RepoRoot}:/workspace",
+        '--env',    'CLAUDE_CODE_OAUTH_TOKEN',
+        '--workdir', '/workspace',
+        $imageName,
+        'bash', '-lc', $claudeCmd
+    )
+
+    try {
+        & docker @dockerPlan 2>&1 | ForEach-Object {
+            Add-Content -Path $logFile -Value $_
+            try {
+                $ev = $_ | ConvertFrom-Json -AsHashtable
+                $hbState = Invoke-HeartbeatReduce -State $hbState -Event $ev
+                if ($ev.type -eq 'assistant.text' -and $ev.ContainsKey('text')) { [void]$accContent.Append($ev.text) }
+                if ($ev.type -eq 'result'         -and $ev.ContainsKey('result')) { [void]$accContent.Append($ev.result) }
+                Write-HbLine -State $hbState
+            } catch { }
+        }
+        $planExit = $LASTEXITCODE
+    } finally {
+        Remove-Item -ErrorAction SilentlyContinue $promptMount
+    }
+
+    if ($planExit -ne 0) {
+        Close-HbLine "  FAILED: docker exit $planExit" -Color 'Red'
+        exit $planExit
+    }
+    Close-HbLine "  Plan agent complete." -Color 'Green'
+
+    $parsed = Invoke-ParsePlan -Content $accContent.ToString()
+    if ($parsed.Error) {
+        Write-Host "ERROR: Could not parse plan — $($parsed.Error)" -ForegroundColor Red
+        Write-Host "  Raw log: $logFile" -ForegroundColor DarkGray
+        exit 1
+    }
+
+    $pd  = $parsed.Plan
+    $top = $pd.top
+    Write-Host ''
+    Write-Host '┌─ Plan ranking ──────────────────────────────────────────────┐' -ForegroundColor Cyan
+    Write-Host ("│  TOP  #$($top.id) — $($top.title)".PadRight(64) + '│') -ForegroundColor Green
+    Write-Host ("│       Branch : $($top.branch)".PadRight(64) + '│') -ForegroundColor DarkGray
+    Write-Host ("│       Reason : $($top.reason)".PadRight(64) + '│') -ForegroundColor DarkGray
+    Write-Host ("│       AC     : $($top.ac_count) items".PadRight(64) + '│') -ForegroundColor DarkGray
+    if ($pd.alternatives.Count -gt 0) {
+        Write-Host '│  ── Alternatives ───────────────────────────────────────────│' -ForegroundColor DarkGray
+        foreach ($alt in $pd.alternatives) {
+            Write-Host ("│  #$($alt.id) $($alt.title) — $($alt.reason)".PadRight(64) + '│') -ForegroundColor DarkGray
+        }
+    }
+    if ($pd.blocked.Count -gt 0) {
+        Write-Host '│  ── Blocked ─────────────────────────────────────────────────│' -ForegroundColor DarkGray
+        foreach ($b in $pd.blocked) {
+            Write-Host ("│  #$($b.id) $($b.title) (blocked by #$($b.blocked_by))".PadRight(64) + '│') -ForegroundColor Yellow
+        }
+    }
+    Write-Host '└─────────────────────────────────────────────────────────────┘' -ForegroundColor Cyan
+    Write-Host ''
+
+    if ($Plan) { exit 0 }
+
+    $confirmed = $false
+    if ($Yes) {
+        Write-Host "  Auto-confirming #$($top.id) ($($top.title))..." -ForegroundColor Green
+        $confirmed = $true
+    } else {
+        $ans = Read-Host "Run #$($top.id) — $($top.title)? [Y/n]"
+        $confirmed = ($ans -eq '' -or $ans -match '^[Yy]')
+    }
+
+    if (-not $confirmed) {
+        Write-Host '  Exiting — no branch created.' -ForegroundColor DarkGray
+        exit 0
+    }
+
+    # Branch creation is the atomic claim (deferred to Slice 3 implement).
+    $slug3      = ($top.title -replace '[^A-Za-z0-9]+', '-').ToLower().Trim('-')
+    $claimBranch = if ($top.branch) { $top.branch } else { "$($cfg.branch_prefix)$($top.id)-$slug3" }
+    Write-Host "  Claimed: $claimBranch" -ForegroundColor Green
+    Write-Host "  Implement phase will create this branch in Slice 3." -ForegroundColor DarkGray
+    exit 0
 } else {
-    Fail 'Specify -SmokeTest or -Issue N.'
+    Fail 'Specify -SmokeTest, -Issue N, -Plan, or -Yes; or run bare for plan phase.'
 }
 
 if (-not (Test-Path $promptFile)) { Fail "Prompt file not found: $promptFile" }
