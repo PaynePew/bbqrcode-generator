@@ -1,64 +1,188 @@
-# Agent harness
+# Agent Harness — Operator Manual
 
-A Docker-based runner that drives `claude` against the project's GitHub issue tracker, using your **Claude subscription** (not an API key), in three phases:
+A Docker-based runner that drives `claude` against a GitHub issue tracker using your **Claude subscription** (not an API key). One terminal, one issue at a time, four phases: plan → implement → review → merge.
 
-1. **Plan** — Opus 4.7 (default). Surveys open issues, deconflicts in-progress work, ranks the remainder, prints a single top candidate plus alternatives.
-2. **Implement** — Sonnet 4.6 (default). Claims a branch atomically, reads the issue, scaffolds, writes tests in Red-Green-Refactor style, commits.
-3. **Review** *(legacy two-phase script only — see [Legacy review path](#legacy-review-path))*.
+**Design rationale:** [PRD #27](https://github.com/PaynePew/qr_code_generator/issues/27) · [ADR 0008](../docs/adr/0008-generic-agent-harness.md)
 
-Plan + Implement is the v1 surface (`run.ps1` / `run.sh`). It is intentionally **not** a Sandcastle replica — sequential, one issue at a time, host-side `git`.
-
-## How it works
-
-```
-┌─ host (Windows / *nix) ──────────────────────────────────────────────┐
-│                                                                       │
-│  CLAUDE_CODE_OAUTH_TOKEN     (subscription auth, env var)            │
-│  gh CLI                      (issue tracker access)                  │
-│  qr_code_generator/                                                  │
-│       │                                                              │
-│       ├─ run.ps1 / run.sh (bare) ── plan agent (opus) ──────────────┐│
-│       │       prints ranked candidates,                              ││
-│       │       prompts "Run #N? [Y/n]"                                ││
-│       │                                                              ││
-│       ├─ run.ps1 -Issue N ── implement agent (sonnet) ──────────────┤│
-│       │       claims branch atomically,                              ││
-│       │       commits to the slice branch                            ││
-│       │                                                              ││
-│       └─ run.ps1 -SmokeTest ── one-prompt sanity check ─────────────┘│
-│                                                                       │
-│  qr_code_generator/  ← branch ready for PR                            │
-└───────────────────────────────────────────────────────────────────────┘
-```
-
-Both phases run inside the same container image (rebuilt only when its `Dockerfile` hash changes) with the repo bind-mounted as `/workspace`. The OAuth token reaches the container by environment-variable reference — never embedded in the docker argv — so it does not appear in the host process listing.
+---
 
 ## Prerequisites
 
-1. **Docker Desktop running.**
-2. **Claude subscription token in the environment.** `claude setup-token` then either export `CLAUDE_CODE_OAUTH_TOKEN` in your shell or drop it into `.harness/.env.local` (gitignored).
-3. **GitHub CLI logged in:** `gh auth login` — verify with `gh auth status`.
-4. **Repo cloned and you are inside it.**
+| Requirement | Check |
+|---|---|
+| Docker Desktop running | `docker info` |
+| `gh` CLI logged in | `gh auth status` |
+| `claude` CLI installed | `claude --version` |
+| OAuth token obtained | `claude setup-token` |
 
-You do not need to `docker build` by hand. The wrappers SHA-256 the `Dockerfile`, compare to `.harness/.image-hash`, and rebuild only when the file changes (or when the image is gone locally).
+**Getting the OAuth token:**
+
+```powershell
+# One-time setup:
+claude setup-token
+# Copy the printed token, then either:
+$env:CLAUDE_CODE_OAUTH_TOKEN = '<token>'
+# or drop it into .harness/.env.local (gitignored):
+# CLAUDE_CODE_OAUTH_TOKEN=<token>
+```
+
+The token is a long-lived value from your Claude subscription account. It reaches the container via environment variable — never embedded in a `docker run` argument — so it does not appear in the host process listing.
+
+---
+
+## First run
+
+```powershell
+# Windows / PowerShell
+pwsh ./.harness/run.ps1 -SmokeTest
+```
+
+```bash
+# Linux / macOS / CI
+./.harness/run.sh --smoke-test
+```
+
+A successful smoke test prints `PONG` from inside the container, confirming that Docker, the OAuth token, `gh` auth, and the image are all wired correctly. The smoke test costs no agent tokens.
+
+If the image does not exist yet, the runner builds it automatically from `Dockerfile` and caches the hash in `.harness/.image-hash`. Subsequent runs skip the build unless `Dockerfile` changes.
+
+---
+
+## Four-phase pipeline
+
+```
+host (Windows / *nix)
+│
+│  ┌────────────────────────────────────────────────────────┐
+│  │  run.ps1 / run.sh (bare)                               │
+│  │                                                         │
+│  │  ① PLAN      ─── claude run ──▶ ranked issue list      │
+│  │                                  "Run #N? [Y/n]"        │
+│  └────────────────────────────────────────────────────────┘
+│
+│  ┌────────────────────────────────────────────────────────┐
+│  │  run.ps1 -Issue N                                      │
+│  │                                                         │
+│  │  ② IMPLEMENT ─── claude run ──▶ claims branch          │
+│  │                                  writes code + tests    │
+│  │                                  commits                │
+│  │                                                         │
+│  │  ③ REVIEW    ─── claude run ──▶ reads diff             │
+│  │                                  refactors              │
+│  │                                  commits refactor:      │
+│  │                                                         │
+│  │  ④ MERGE     ─── claude run ──▶ git push -u origin     │
+│  │                                  gh pr create --fill    │
+│  └────────────────────────────────────────────────────────┘
+│
+│  branch ready for human review on GitHub
+```
+
+Each phase runs in a fresh container with the repo bind-mounted as `/workspace`. Phases share state through git commits on the feature branch — no daemon, no shared queue, no `.harness/state.json`.
+
+---
+
+## Bare `run` flow
+
+```powershell
+pwsh ./.harness/run.ps1
+```
+
+1. Runs the **plan phase**: scans open issues, deconflicts against branches already claimed (`{branch_prefix}{N}-*`) and open PRs, ranks the remainder.
+2. Prints the top candidate and alternatives.
+3. Prompts: `Run #N? [Y/n]`
+4. On confirmation, runs **implement → review → merge** on that issue.
+
+```bash
+# Linux / macOS equivalent (plan + implement only; review/merge PS-only in v1)
+./.harness/run.sh
+```
+
+---
+
+## Flag reference
+
+### PowerShell (`run.ps1`)
+
+| Flag | Description |
+|---|---|
+| *(bare)* | Plan → confirm → implement → review → merge |
+| `-Plan` | Plan phase only; print ranking, exit. No implement. |
+| `-Yes` | Plan + auto-confirm top candidate + full pipeline. No Y/n prompt. |
+| `-Issue N` | Skip plan. Claim + implement + review + merge issue N. |
+| `-Resume` | Resume implement on an existing branch for `-Issue N`. Fails if no matching branch exists. |
+| `-SkipReview` | Skip the review phase after implement. Branch is ready to push manually. |
+| `-SkipMerge` | Skip the merge phase after review. No push, no PR created. |
+| `-SmokeTest` | Run the smoke-test prompt only (validates plumbing). |
+| `-PlanModel <id>` | Override `agents.plan.model` from config. |
+| `-ImplementModel <id>` | Override `agents.implement.model` from config. |
+| `-ReviewModel <id>` | Override `agents.review.model` from config. |
+| `-MergeModel <id>` | Override `agents.merge.model` from config. |
+| `-PlanMaxTurns N` | Override `agents.plan.max_turns` from config. |
+| `-ImplementMaxTurns N` | Override `agents.implement.max_turns` from config. |
+| `-ReviewMaxTurns N` | Override `agents.review.max_turns` from config. |
+| `-MergeMaxTurns N` | Override `agents.merge.max_turns` from config. |
+
+### Bash (`run.sh`)
+
+| Flag | Description |
+|---|---|
+| *(bare)* | Plan → confirm → implement |
+| `--plan` | Plan phase only, print ranking, exit. |
+| `--yes` | Plan + auto-confirm top candidate + implement. |
+| `--issue N` | Skip plan, implement issue N. |
+| `--smoke-test` | Validate plumbing only. |
+
+---
+
+## Manual issue selection from another terminal
+
+If you want to run a specific issue without going through the plan phase:
+
+```powershell
+# Terminal A — already running plan on something else
+# Terminal B — claim and implement a specific issue directly
+pwsh ./.harness/run.ps1 -Issue 42
+```
+
+The plan phase deconflicts against local branches and open PRs, so a second terminal that runs plan will never pick an issue another terminal has claimed. If you skip plan (`-Issue N` directly), the branch-claim is still atomic: `git checkout -b` fails fast if the branch already exists.
+
+---
+
+## Resume after rate-limit
+
+When `claude` exits non-zero with `Rate limit exceeded` or `usage_limit_exceeded` in the log, the wrapper surfaces the exact resume command:
+
+```
+Run interrupted. Resume with:
+  pwsh ./.harness/run.ps1 -Issue 30 -Resume
+```
+
+Partial commits on the branch are preserved. `-Resume` skips branch creation and continues from the last committed state.
+
+```powershell
+pwsh ./.harness/run.ps1 -Issue 30 -Resume
+```
+
+---
 
 ## Config
 
 `.harness/config.yml` is loaded once per run. Required keys:
 
 ```yaml
-image:          agent-harness:latest      # docker image tag the harness builds + uses
-branch_prefix:  kanban-issue              # branches are named "{prefix}{N}-{slug}"
+image:          agent-harness:latest
+branch_prefix:  kanban-issue
 tracker:
-  type:         github                    # only github is supported in v1
-  repo:         PaynePew/qr_code_generator # passed to `gh --repo`
+  type:         github
+  repo:         PaynePew/qr_code_generator
 ```
 
 Optional:
 
 ```yaml
 defaults:
-  model:        claude-sonnet-4-6         # fallback when a phase omits its model
+  model:        claude-sonnet-4-6
 
 agents:
   plan:
@@ -67,6 +191,12 @@ agents:
   implement:
     model:      claude-sonnet-4-6
     max_turns:  80
+  review:
+    model:      claude-opus-4-7
+    max_turns:  30
+  merge:
+    model:      claude-sonnet-4-6
+    max_turns:  20
 
 docs:
   context:      CONTEXT.md
@@ -80,110 +210,74 @@ typecheck:
   block:        npm run typecheck --prefix frontend
 
 commit:
-  style:        Conventional Commits (feat/fix/test/docs/chore/refactor). One logical change per commit.
+  style:        "Conventional Commits (feat/fix/test/docs/chore/refactor)"
 ```
 
-The loader rejects tab indentation (matches PS YAML contract) and fails fast on missing required keys.
+CLI model flags (e.g. `-ImplementModel`) override config values for that run only.
 
-## Running
+---
 
-### Plan only (decide what to ship next)
+## Troubleshooting
 
-```powershell
-pwsh ./.harness/run.ps1            # plan → "Run #N? [Y/n]" → implement
-pwsh ./.harness/run.ps1 -Plan      # plan only, print ranking, never prompt or implement
-pwsh ./.harness/run.ps1 -Yes       # plan, auto-confirm, chain into implement
-```
+### Pre-flight failures
 
-Or on *nix / CI:
+The wrapper checks prerequisites before starting any agent. Common failures:
 
-```bash
-./.harness/run.sh --plan
-./.harness/run.sh --yes
-```
+| Error | Fix |
+|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN is not set` | Run `claude setup-token` and export the token, or add it to `.harness/.env.local`. |
+| `gh auth status` fails | Run `gh auth login` on the host. |
+| Docker daemon not running | Start Docker Desktop. |
+| `Missing config key: image` | Check `.harness/config.yml` for required keys. |
+| Branch `kanban-issueN-*` already exists | Another terminal already claimed the issue. Use `-Resume` to continue it, or pick a different issue. |
 
-The plan phase deconflicts against:
-- local + remote-tracking branches matching `{branch_prefix}{N}-*` (issue N already claimed)
-- open PRs whose `headRefName` matches the same pattern
+### Hooks not firing
 
-In-progress issue numbers are passed to the planner so it never picks an issue someone else is already shipping.
+Hooks are bash scripts in `.harness/hooks/` that run **on the host**, not inside the container. The wrapper invokes them at fixed lifecycle points around the implement phase:
 
-### Implement on a chosen issue
+| Hook | Fires |
+|---|---|
+| `before-tests.sh` | Before the implement container starts (skipped for smoke-test runs). |
+| `after-implement.sh` | After the implement container exits (success or failure). |
 
-```powershell
-pwsh ./.harness/run.ps1 -Issue 30                # fresh claim
-pwsh ./.harness/run.ps1 -Issue 30 -Resume        # resume an existing matching branch
-```
+If a hook did not fire:
 
-The implementer:
+1. Confirm the script lives at `.harness/hooks/<name>.sh` and matches the expected name above.
+2. Confirm the script is readable by the user running the wrapper. Hooks are invoked via `bash <path>`, so the executable bit is not required, but bash must be on `PATH`.
+3. Check the wrapper's stdout for the line `WARNING: hook '<name>' exited <code>` — non-zero hook exits do not abort the run, only warn.
+4. Hooks receive context via environment variables: `HARNESS_ISSUE`, `HARNESS_BRANCH`, `HARNESS_PHASE`. Read these inside the script — no positional arguments are passed.
 
-- Creates `{branch_prefix}{N}-{slug-from-issue-title}` (atomic — fails if another terminal already claimed it).
-- Reads the issue, optionally fetches a parent issue / PRD.
-- Implements every AC, RGR-style. Runs `tests.block` and `typecheck.block` from config.
-- Commits one logical change at a time using `commit.style` from config.
-- Posts a structured COMPLETE or BLOCKED comment back to the issue.
-- Never pushes to origin, never modifies `main`, never touches `.harness/` / `.sandcastle/` / `.claude/`, never closes the issue, never rewrites history.
+### Log file location
 
-### Smoke test
+| Log | Path |
+|---|---|
+| Implement run | `.harness/logs/issue-{N}.log` |
+| Plan run | `.harness/logs/plan-{timestamp}.log` |
+| Smoke test | `.harness/logs/smoke-test.log` |
 
-```powershell
-pwsh ./.harness/run.ps1 -SmokeTest
-```
+`.harness/logs/` is gitignored except for `.gitkeep`. Logs persist between runs and are overwritten on each new run for the same issue number.
 
-Runs `prompts/smoke-test.md` (a one-line "say PONG") inside the container to verify the OAuth token, gh auth, and image are wired correctly.
+---
 
-### Resume after a rate-limit
+## Cost / rate-limit reality (Pro subscription)
 
-When `claude` exits non-zero with `Rate limit exceeded` / `usage_limit_exceeded` in the log, the wrapper surfaces the exact resume command:
+- Pro has a **5-hour rolling message window**. A full four-phase run (plan + implement + review + merge) on a complex slice can consume 30–50% of the window.
+- **One issue at a time.** Opening two terminals for the same issue will exhaust the rate limit before either finishes. Open a second terminal only after the first has committed its implement phase and the window budget allows it.
+- If a run crashes mid-way, partial commits stay on the local branch. Use `-Resume` to continue — the agent reads the branch state and picks up from the last commit.
+- The harness does not sleep, estimate remaining budget, or auto-retry. It surfaces the failure and prints the resume command. The operator decides when to resume.
 
-```powershell
-pwsh ./.harness/run.ps1 -Issue 30 -Resume
-```
-
-Partial commits on the slice branch are preserved.
-
-## Logs
-
-- `.harness/logs/issue-{N}.log` — implement run output.
-- `.harness/logs/plan-{timestamp}.log` — plan run output (raw stream-json).
-- `.harness/logs/smoke-test.log` — smoke-test run.
-
-`.harness/logs/` is gitignored except for `.gitkeep`.
+---
 
 ## Files
 
 | Path | Purpose |
 |---|---|
-| `Dockerfile` | Node 22 + Python 3 + git + gh + claude CLI; user is `agent` (UID 1000). |
-| `config.yml` | Per-project config (see [Config](#config)). |
-| `run.ps1` / `run.sh` | Twin entry points — plan, implement, smoke-test. |
-| `lib/*.{ps1,sh}` | Pure-function modules (config loader, prompt renderer, deconflict scanner, image-cache check, branch claim, heartbeat reducer, plan parser). Mirrored across PS and bash. |
-| `prompts/{plan,implement,smoke-test}.md` | Project-agnostic prompts rendered with `{{KEY}}` substitution. |
-| `prompts/review.md` | Used only by the legacy `run-issue.ps1` (see below). |
-| `tests/` | Pester + bats coverage for every `lib/` module. |
-| `CODING_STANDARDS.md` | Loaded by the review prompt (legacy path) — not by implement. |
-
-## Legacy review path
-
-`run-issue.ps1` is the proof-of-concept that validated subscription auth and the two-phase **implement → review** loop. It still works and is the only way to trigger an automated Opus review pass today:
-
-```powershell
-pwsh ./.harness/run-issue.ps1 -Issue 7              # implement + review on slice-7-... branch
-pwsh ./.harness/run-issue.ps1 -Issue 7 -SkipReview  # implement only
-pwsh ./.harness/run-issue.ps1 -Issue 7 -SkipImplement # rerun review only
-```
-
-Caveats vs `run.ps1`:
-
-- Uses the `slice-{N}-...` branch convention (not `branch_prefix` from config).
-- Mounts `~/.claude/.credentials.json` into the container (not env-var auth).
-- Hard-codes `qr-agent:latest` as the image tag — run `docker build -t qr-agent:latest .\.harness\` once before first use.
-- Passes the GH token through `-e GH_TOKEN=...` (token visible in process listing on the host).
-
-A `run.ps1`-native review phase will land when the four-phase pipeline (plan / implement / review / merge described in PRD 0002 and ADR 0008) is fully realized. Until then, use `run-issue.ps1` when you want an automated review pass.
-
-## Cost / rate-limit reality (Pro subscription)
-
-- Pro has a 5-hour message window. A two-phase implement+review run can consume a meaningful fraction.
-- **One issue at a time.** Parallelism with this harness will hit your rate limit before it finishes.
-- If a run crashes mid-way, partial commits stay on the local branch. Use `-Resume` to continue.
+| `Dockerfile` | Node 22 + Python 3 + git + gh + claude CLI; user `agent` (UID 1000). |
+| `config.yml` | Per-project config (image tag, branch prefix, tracker, models, test commands). |
+| `run.ps1` | Entry point — Windows/PowerShell. Full four-phase pipeline. |
+| `run.sh` | Entry point — Linux/macOS/CI. Plan + implement. |
+| `lib/*.{ps1,sh}` | Pure-function modules mirrored across PS and bash. |
+| `prompts/{plan,implement,review,merge,smoke-test}.md` | Project-agnostic prompt templates with `{{KEY}}` substitution. |
+| `tests/` | Pester (`.Tests.ps1`) and bats (`.bats`) coverage for every `lib/` module. |
+| `.env.local` | OAuth token override (gitignored). Copy from `.env.local.example`. |
+| `logs/` | Per-run container stdout (gitignored except `.gitkeep`). |
