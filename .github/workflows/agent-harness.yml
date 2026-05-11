@@ -1,0 +1,40 @@
+name: Agent Harness Tests
+
+on:
+  pull_request:
+    paths:
+      - '.harness/**'
+
+jobs:
+  pester:
+    name: Pester (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name Pester -Force -SkipPublisherCheck
+
+      - name: Run Pester suite
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = '.harness/tests'
+          $config.Run.Exit = $true
+          $config.Output.Verbosity = 'Normal'
+          Invoke-Pester -Configuration $config
+
+  bats:
+    name: bats (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install bats-core
+        run: sudo apt-get install -y bats
+
+      - name: Run bats suite
+        run: bats .harness/tests/*.bats
