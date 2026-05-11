@@ -1,20 +1,23 @@
 BeforeAll {
     $script:PromptPath = "$PSScriptRoot/../prompts/review.md"
     $script:Content    = Get-Content $script:PromptPath -Raw
-    $script:CodingStandardsPath = "$PSScriptRoot/../CODING_STANDARDS.md"
+    $script:CodingStandardsExamplePath = "$PSScriptRoot/../CODING_STANDARDS.md.example"
 }
 
-Describe 'CODING_STANDARDS.md is wired into the review phase' {
-    # Regression guard: slice 7 deleted this file but left the wrapper that
-    # reads it, silently injecting an empty standards block into review for
-    # every run until the next operator noticed. The file must exist as long
-    # as run.ps1 references it and prompts/review.md substitutes the block.
-    It 'CODING_STANDARDS.md exists at .harness/CODING_STANDARDS.md' {
-        Test-Path $script:CodingStandardsPath | Should -BeTrue
+Describe 'CODING_STANDARDS.md.example ships with the harness for new projects' {
+    # Regression guard with two histories:
+    # 1. Slice 7 deleted .harness/CODING_STANDARDS.md but left the wrapper
+    #    that reads it — silently injecting blank standards into review.
+    # 2. The genericization step moved the upstream template to .example
+    #    so it can travel with the extracted repo. The real file is per-project
+    #    (gitignored). The .example MUST stay in version control so any
+    #    project that adopts the harness gets a starting template.
+    It 'CODING_STANDARDS.md.example exists in the harness directory' {
+        Test-Path $script:CodingStandardsExamplePath | Should -BeTrue
     }
 
-    It 'is non-empty (would otherwise inject blank standards into review)' {
-        (Get-Content $script:CodingStandardsPath -Raw).Trim().Length | Should -BeGreaterThan 0
+    It 'is non-empty (otherwise new projects get a blank starting template)' {
+        (Get-Content $script:CodingStandardsExamplePath -Raw).Trim().Length | Should -BeGreaterThan 0
     }
 }
 

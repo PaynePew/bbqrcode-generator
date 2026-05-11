@@ -278,7 +278,16 @@ Write-Host '  All pre-flight checks passed.' -ForegroundColor Green
 
 Step 'Loading config'
 try {
-    $cfg = Import-HarnessConfig -ConfigPath "$HarnessRoot/config.yml"
+    $configPath = "$HarnessRoot/config.yml"
+    if (-not (Test-Path $configPath)) {
+        $examplePath = "$HarnessRoot/config.yml.example"
+        if (Test-Path $examplePath) {
+            Fail "Missing $configPath." "cp $examplePath $configPath   # then edit tracker.repo etc."
+        } else {
+            Fail "Missing $configPath and no .example template found." "Create .harness/config.yml from scratch"
+        }
+    }
+    $cfg = Import-HarnessConfig -ConfigPath $configPath
 } catch {
     Fail "Config error: $_"
 }

@@ -82,7 +82,16 @@ echo "  All pre-flight checks passed."
 # ── Load config ────────────────────────────────────────────────────────────────
 
 step 'Loading config'
-load_config "$HARNESS_ROOT/config.yml"
+CONFIG_PATH="$HARNESS_ROOT/config.yml"
+if [[ ! -f "$CONFIG_PATH" ]]; then
+    EXAMPLE_PATH="$HARNESS_ROOT/config.yml.example"
+    if [[ -f "$EXAMPLE_PATH" ]]; then
+        fail "Missing $CONFIG_PATH." "cp $EXAMPLE_PATH $CONFIG_PATH   # then edit tracker.repo etc."
+    else
+        fail "Missing $CONFIG_PATH and no .example template found." "Create .harness/config.yml from scratch"
+    fi
+fi
+load_config "$CONFIG_PATH"
 IMAGE_NAME="$HARNESS_IMAGE"
 MARKER_PATH="$HARNESS_ROOT/.image-hash"
 echo "  image=$IMAGE_NAME  branch_prefix=$HARNESS_BRANCH_PREFIX"

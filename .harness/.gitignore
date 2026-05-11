@@ -3,3 +3,5 @@
 .current-prompt.md
 logs/*
 !logs/.gitkeep
+config.yml
+CODING_STANDARDS.md

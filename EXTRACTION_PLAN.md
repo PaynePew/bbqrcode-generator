@@ -88,7 +88,7 @@ Also check `load-config.Tests.ps1` and `load-config.bats` for assertions tied to
 
 **Commit:** `refactor(harness): ship config.yml and CODING_STANDARDS.md as .example templates`
 
-**Status:** [ ] todo
+**Status:** [x] DONE — see next commit
 
 ---
 
