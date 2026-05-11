@@ -12,3 +12,22 @@ tracker:
 
 defaults:
   model: claude-sonnet-4-6
+
+agents:
+  implement:
+    model: claude-sonnet-4-6
+    max_turns: 80
+
+docs:
+  prd_dir: docs/prd
+  context: CONTEXT.md
+  adr_dir: docs/adr
+
+tests:
+  block: pytest backend/ && npm test --prefix frontend
+
+typecheck:
+  block: npm run typecheck --prefix frontend
+
+commit:
+  style: Conventional Commits (feat/fix/test/docs/chore/refactor). One logical change per commit.

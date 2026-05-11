@@ -8,26 +8,41 @@ function Import-HarnessConfig {
     }
 
     $config = @{}
-    $currentParent = $null
+    $currentL1 = $null
+    $currentL2 = $null
 
     foreach ($line in (Get-Content $ConfigPath)) {
         if ($line -match '^\s*#' -or $line -match '^\s*$') { continue }
 
-        if ($line -match '^([A-Za-z][A-Za-z0-9_-]*): *(.*)$') {
-            $key = $Matches[1]
+        # L3: 4-space indent with value  (e.g. "    model: foo")
+        if ($currentL1 -and $currentL2 -and $line -match '^    ([A-Za-z][A-Za-z0-9_-]*): *(.+)$') {
+            $config[$currentL1][$currentL2][$Matches[1]] = $Matches[2].Trim()
+        }
+        # L2: 2-space indent with value  (e.g. "  type: github")
+        elseif ($currentL1 -and $line -match '^  ([A-Za-z][A-Za-z0-9_-]*): *(.+)$') {
+            if ($config[$currentL1] -isnot [hashtable]) { $config[$currentL1] = @{} }
+            $config[$currentL1][$Matches[1]] = $Matches[2].Trim()
+            $currentL2 = $null
+        }
+        # L2: 2-space indent without value — opens L3 block  (e.g. "  implement:")
+        elseif ($currentL1 -and $line -match '^  ([A-Za-z][A-Za-z0-9_-]*): *$') {
+            if ($config[$currentL1] -isnot [hashtable]) { $config[$currentL1] = @{} }
+            $config[$currentL1][$Matches[1]] = @{}
+            $currentL2 = $Matches[1]
+        }
+        # L1: top-level key (with or without value)
+        elseif ($line -match '^([A-Za-z][A-Za-z0-9_-]*): *(.*)$') {
+            $key   = $Matches[1]
             $value = $Matches[2].Trim()
             if ($value -eq '') {
                 $config[$key] = @{}
-                $currentParent = $key
+                $currentL1 = $key
+                $currentL2 = $null
             } else {
                 $config[$key] = $value
-                $currentParent = $null
+                $currentL1 = $null
+                $currentL2 = $null
             }
-        } elseif ($line -match '^  ([A-Za-z][A-Za-z0-9_-]*): *(.+)$' -and $currentParent) {
-            $childKey = $Matches[1]
-            $childValue = $Matches[2].Trim()
-            if ($config[$currentParent] -isnot [hashtable]) { $config[$currentParent] = @{} }
-            $config[$currentParent][$childKey] = $childValue
         }
     }
 
@@ -46,6 +61,14 @@ function Import-HarnessConfig {
 
     if ($config['defaults'] -isnot [hashtable]) { $config['defaults'] = @{} }
     if (-not $config['defaults']['model']) { $config['defaults']['model'] = 'claude-sonnet-4-6' }
+
+    if ($config['agents'] -isnot [hashtable]) { $config['agents'] = @{} }
+    if ($config['agents']['implement'] -isnot [hashtable]) { $config['agents']['implement'] = @{} }
+    if (-not $config['agents']['implement']['model'])     { $config['agents']['implement']['model']     = 'claude-sonnet-4-6' }
+    if (-not $config['agents']['implement']['max_turns']) { $config['agents']['implement']['max_turns'] = '80' }
+    if ($config['agents']['plan'] -isnot [hashtable]) { $config['agents']['plan'] = @{} }
+    if (-not $config['agents']['plan']['model'])     { $config['agents']['plan']['model']     = 'claude-opus-4-7' }
+    if (-not $config['agents']['plan']['max_turns']) { $config['agents']['plan']['max_turns'] = '10' }
 
     return $config
 }

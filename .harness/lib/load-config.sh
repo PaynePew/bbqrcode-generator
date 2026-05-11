@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # load_config CONFIG_PATH
-# Parses a shallow two-level YAML config, validates required keys, applies defaults.
+# Parses a YAML config (up to 3 levels), validates required keys, applies defaults.
 # Exports: HARNESS_IMAGE, HARNESS_BRANCH_PREFIX, HARNESS_TRACKER_TYPE,
-#          HARNESS_TRACKER_REPO, HARNESS_DEFAULT_MODEL
+#          HARNESS_TRACKER_REPO, HARNESS_DEFAULT_MODEL,
+#          HARNESS_AGENT_IMPLEMENT_MODEL, HARNESS_AGENT_IMPLEMENT_MAX_TURNS,
+#          HARNESS_AGENT_PLAN_MODEL, HARNESS_AGENT_PLAN_MAX_TURNS
 
 # _yaml_top FILE KEY → prints scalar value of a top-level YAML key, or empty.
 _yaml_top() {
@@ -30,6 +32,22 @@ _yaml_nested() {
     ' "$file"
 }
 
+# _yaml_deep FILE GRANDPARENT PARENT CHILD → prints scalar of GRANDPARENT.PARENT.CHILD, or empty.
+_yaml_deep() {
+    local file="$1" gp="$2" p="$3" c="$4"
+    awk -v gp="$gp" -v p="$p" -v c="$c" '
+        $0 ~ "^" gp ":"          { in_gp = 1; in_p = 0; next }
+        in_gp && /^[^ ]/         { in_gp = 0; in_p = 0 }
+        in_gp && $0 ~ "^  " p ":" { in_p = 1; next }
+        in_p && /^  [^ ]/        { in_p = 0 }
+        in_p && $0 ~ "^    " c ":" {
+            sub("^[[:space:]]*" c ":[[:space:]]*", "")
+            sub(/[[:space:]]+$/, "")
+            print; exit
+        }
+    ' "$file"
+}
+
 load_config() {
     local config_path="$1"
 
@@ -43,6 +61,10 @@ load_config() {
     HARNESS_TRACKER_TYPE=$(_yaml_nested "$config_path" "tracker" "type")
     HARNESS_TRACKER_REPO=$(_yaml_nested "$config_path" "tracker" "repo")
     HARNESS_DEFAULT_MODEL=$(_yaml_nested "$config_path" "defaults" "model")
+    HARNESS_AGENT_IMPLEMENT_MODEL=$(_yaml_deep "$config_path" "agents" "implement" "model")
+    HARNESS_AGENT_IMPLEMENT_MAX_TURNS=$(_yaml_deep "$config_path" "agents" "implement" "max_turns")
+    HARNESS_AGENT_PLAN_MODEL=$(_yaml_deep "$config_path" "agents" "plan" "model")
+    HARNESS_AGENT_PLAN_MAX_TURNS=$(_yaml_deep "$config_path" "agents" "plan" "max_turns")
 
     if [[ -z "$HARNESS_IMAGE" ]]; then
         echo "ERROR: Missing required config key 'image' in $config_path." >&2
@@ -62,6 +84,13 @@ load_config() {
     fi
 
     HARNESS_DEFAULT_MODEL="${HARNESS_DEFAULT_MODEL:-claude-sonnet-4-6}"
+    HARNESS_AGENT_IMPLEMENT_MODEL="${HARNESS_AGENT_IMPLEMENT_MODEL:-claude-sonnet-4-6}"
+    HARNESS_AGENT_IMPLEMENT_MAX_TURNS="${HARNESS_AGENT_IMPLEMENT_MAX_TURNS:-80}"
+    HARNESS_AGENT_PLAN_MODEL="${HARNESS_AGENT_PLAN_MODEL:-claude-opus-4-7}"
+    HARNESS_AGENT_PLAN_MAX_TURNS="${HARNESS_AGENT_PLAN_MAX_TURNS:-10}"
 
-    export HARNESS_IMAGE HARNESS_BRANCH_PREFIX HARNESS_TRACKER_TYPE HARNESS_TRACKER_REPO HARNESS_DEFAULT_MODEL
+    export HARNESS_IMAGE HARNESS_BRANCH_PREFIX HARNESS_TRACKER_TYPE HARNESS_TRACKER_REPO \
+           HARNESS_DEFAULT_MODEL \
+           HARNESS_AGENT_IMPLEMENT_MODEL HARNESS_AGENT_IMPLEMENT_MAX_TURNS \
+           HARNESS_AGENT_PLAN_MODEL HARNESS_AGENT_PLAN_MAX_TURNS
 }

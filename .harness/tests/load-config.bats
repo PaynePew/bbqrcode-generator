@@ -41,3 +41,15 @@ setup() {
     [ "$status" -ne 0 ]
     [[ "$output" == *"github"* ]]
 }
+
+@test "applies default agents.plan model and max_turns when not specified" {
+    load_config "$FIXTURES_DIR/minimal-config.yml"
+    [ "$HARNESS_AGENT_PLAN_MODEL" = "claude-opus-4-7" ]
+    [ "$HARNESS_AGENT_PLAN_MAX_TURNS" = "10" ]
+}
+
+@test "preserves explicit agents.plan overrides" {
+    load_config "$FIXTURES_DIR/agents-config.yml"
+    [ "$HARNESS_AGENT_PLAN_MODEL" = "claude-haiku-4-5" ]
+    [ "$HARNESS_AGENT_PLAN_MAX_TURNS" = "5" ]
+}

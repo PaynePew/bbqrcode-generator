@@ -40,4 +40,28 @@ Describe 'Import-HarnessConfig' {
         { Import-HarnessConfig -ConfigPath "$script:Fixtures/invalid-tracker-type.yml" } |
             Should -Throw '*github*'
     }
+
+    It 'applies default agents.implement model and max_turns when not specified' {
+        $cfg = Import-HarnessConfig -ConfigPath "$script:Fixtures/minimal-config.yml"
+        $cfg.agents.implement.model     | Should -Be 'claude-sonnet-4-6'
+        $cfg.agents.implement.max_turns | Should -Be '80'
+    }
+
+    It 'preserves explicit agents.implement overrides' {
+        $cfg = Import-HarnessConfig -ConfigPath "$script:Fixtures/agents-config.yml"
+        $cfg.agents.implement.model     | Should -Be 'claude-opus-4-7'
+        $cfg.agents.implement.max_turns | Should -Be '120'
+    }
+
+    It 'applies default agents.plan model and max_turns when not specified' {
+        $cfg = Import-HarnessConfig -ConfigPath "$script:Fixtures/minimal-config.yml"
+        $cfg.agents.plan.model     | Should -Be 'claude-opus-4-7'
+        $cfg.agents.plan.max_turns | Should -Be '10'
+    }
+
+    It 'preserves explicit agents.plan overrides' {
+        $cfg = Import-HarnessConfig -ConfigPath "$script:Fixtures/agents-config.yml"
+        $cfg.agents.plan.model     | Should -Be 'claude-haiku-4-5'
+        $cfg.agents.plan.max_turns | Should -Be '5'
+    }
 }
