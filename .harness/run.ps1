@@ -14,12 +14,15 @@
 .PARAMETER Resume
     Resume implement on an existing branch for the given -Issue. Fails if no
     matching branch exists. Cannot be used without -Issue.
+.PARAMETER SkipReview
+    Skip the review phase after implement. The branch can still be merged.
 .EXAMPLE
-    pwsh ./.harness/run.ps1               # plan → confirm → implement
+    pwsh ./.harness/run.ps1               # plan → confirm → implement → review
     pwsh ./.harness/run.ps1 -Plan         # plan only, print ranking, no implement
-    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm + implement top candidate
-    pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement #30
+    pwsh ./.harness/run.ps1 -Yes          # plan + auto-confirm + implement + review
+    pwsh ./.harness/run.ps1 -Issue 30     # skip plan, claim + implement + review #30
     pwsh ./.harness/run.ps1 -Issue 30 -Resume
+    pwsh ./.harness/run.ps1 -Issue 30 -SkipReview
     pwsh ./.harness/run.ps1 -SmokeTest
 #>
 [CmdletBinding()]
@@ -28,7 +31,8 @@ param(
     [switch]$Yes,
     [switch]$SmokeTest,
     [int]$Issue,
-    [switch]$Resume
+    [switch]$Resume,
+    [switch]$SkipReview
 )
 
 Set-StrictMode -Version Latest
@@ -411,6 +415,92 @@ if (-not $ok -and $Issue -and (Test-Path $logFile)) {
         Write-Host '  Rate limit hit. Resume with:' -ForegroundColor Yellow
         Write-Host "  pwsh ./.harness/run.ps1 -Issue $Issue -Resume" -ForegroundColor Yellow
     }
+}
+
+# ── Review phase ───────────────────────────────────────────────────────────────
+# Runs only after a successful implement run (Issue set, not SmokeTest, not SkipReview).
+
+if ($ok -and $Issue -and -not $SmokeTest -and -not $SkipReview) {
+    $reviewModel    = $cfg.agents.review.model
+    $reviewMaxTurns = $cfg.agents.review.max_turns
+
+    # Same-model pre-flight warning — structural self-review safety is weakened.
+    if ($implementModel -eq $reviewModel) {
+        Write-Host ''
+        Write-Host '  WARNING: agents.implement.model and agents.review.model are the same' `
+            "($reviewModel). Self-review safety depends on different models producing" `
+            'different reasoning traces; using the same model reduces that guarantee.' `
+            'Proceeding anyway.' -ForegroundColor Yellow
+    }
+
+    Step 'Review phase'
+    Write-Host "  model=$reviewModel  max_turns=$reviewMaxTurns" -ForegroundColor DarkGray
+
+    # Derive the target branch (default branch of the repo).
+    $targetBranch = git symbolic-ref refs/remotes/origin/HEAD --short 2>$null
+    if (-not $targetBranch) { $targetBranch = 'origin/main' }
+    $targetBranch = $targetBranch -replace '^origin/', ''
+
+    $codingStandardsPath = "$HarnessRoot/CODING_STANDARDS.md"
+    $codingStandardsBlock = if (Test-Path $codingStandardsPath) {
+        Get-Content $codingStandardsPath -Raw
+    } else { '' }
+
+    $reviewSubs = @{
+        ISSUE                  = "$Issue"
+        BRANCH                 = $branchName
+        TARGET_BRANCH          = $targetBranch
+        DOCS_CONTEXT           = $docsContext
+        DOCS_ADR_DIR           = $docsAdrDir
+        CODING_STANDARDS_BLOCK = $codingStandardsBlock
+    }
+
+    $reviewPromptFile = "$HarnessRoot/prompts/review.md"
+    if (-not (Test-Path $reviewPromptFile)) { Fail "Review prompt not found: $reviewPromptFile" }
+
+    $renderedReview  = Invoke-RenderPrompt -Template (Get-Content $reviewPromptFile -Raw) -Substitutions $reviewSubs
+    $reviewMount     = "$HarnessRoot/.current-prompt.md"
+    Set-Content -Path $reviewMount -Value $renderedReview -Encoding UTF8
+
+    $reviewLogFile = "$HarnessRoot/logs/review-$Issue-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+    Write-Host "  Log → $reviewLogFile" -ForegroundColor DarkGray
+
+    $reviewCmd = "claude --output-format stream-json --model $reviewModel --max-turns $reviewMaxTurns -p `"`$(cat /workspace/.harness/.current-prompt.md)`""
+    $dockerReview = @(
+        'run', '--rm',
+        '--volume', "${RepoRoot}:/workspace",
+        '--env',    'CLAUDE_CODE_OAUTH_TOKEN',
+        '--workdir', '/workspace',
+        $imageName,
+        'bash', '-lc', $reviewCmd
+    )
+
+    $reviewExit = -1
+    try {
+        & docker @dockerReview 2>&1 | Tee-Object -FilePath $reviewLogFile
+        $reviewExit = $LASTEXITCODE
+    } finally {
+        Remove-Item -ErrorAction SilentlyContinue $reviewMount
+    }
+
+    $reviewOk     = $reviewExit -eq 0
+    $reviewColor  = if ($reviewOk) { 'Green' } else { 'Yellow' }
+    $reviewStatus = if ($reviewOk) { 'COMPLETE' } else { "FAILED (exit $reviewExit)" }
+
+    Write-Host ''
+    Write-Host ('╔' + '═' * 50 + '╗') -ForegroundColor $reviewColor
+    Write-Host ("║  review #$Issue — $reviewStatus".PadRight(51) + '║') -ForegroundColor $reviewColor
+    Write-Host ('╚' + '═' * 50 + '╝') -ForegroundColor $reviewColor
+
+    if (-not $reviewOk) {
+        $reviewLog = Get-Content $reviewLogFile -Raw -ErrorAction SilentlyContinue
+        if ($reviewLog -match 'Rate limit exceeded|usage_limit_exceeded') {
+            Write-Host '  Rate limit hit during review. Re-run with -SkipReview to skip, or retry.' -ForegroundColor Yellow
+        }
+    }
+} elseif ($Issue -and -not $SmokeTest -and $SkipReview) {
+    Write-Host ''
+    Write-Host '  Review phase skipped (-SkipReview).' -ForegroundColor DarkGray
 }
 
 exit $exitCode
