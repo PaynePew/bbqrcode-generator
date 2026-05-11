@@ -78,6 +78,9 @@ function Import-HarnessConfig {
     if ($config['agents']['review'] -isnot [hashtable]) { $config['agents']['review'] = @{} }
     if (-not $config['agents']['review']['model'])     { $config['agents']['review']['model']     = 'claude-opus-4-7' }
     if (-not $config['agents']['review']['max_turns']) { $config['agents']['review']['max_turns'] = '30' }
+    if ($config['agents']['merge'] -isnot [hashtable]) { $config['agents']['merge'] = @{} }
+    if (-not $config['agents']['merge']['model'])     { $config['agents']['merge']['model']     = 'claude-sonnet-4-6' }
+    if (-not $config['agents']['merge']['max_turns']) { $config['agents']['merge']['max_turns'] = '20' }
 
     return $config
 }

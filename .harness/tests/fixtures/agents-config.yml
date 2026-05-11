@@ -13,3 +13,6 @@ agents:
   review:
     model: claude-sonnet-4-6
     max_turns: 20
+  merge:
+    model: claude-haiku-4-5
+    max_turns: 10
