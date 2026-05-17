@@ -1,7 +1,9 @@
-from typing import Optional
+from __future__ import annotations
+
+from starlette.requests import Request
 
 
-def extract_client_ip(request, trusted_proxies: int) -> Optional[str]:
+def extract_client_ip(request: Request, trusted_proxies: int) -> str | None:
     """Return the best-guess client IP for *request*.
 
     trusted_proxies=0  → ignore X-Forwarded-For, use request.client.host.
