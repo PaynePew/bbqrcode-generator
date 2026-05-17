@@ -34,10 +34,11 @@ class CheckResult:
 
 @dataclass
 class _IpEntry:
-    buckets: list  # list[TokenBucket]
+    buckets: list[TokenBucket]
     last_access: float
     deny_count: int = 0
-    deny_second: float = -1.0  # int(clock()) when deny_count was last reset
+    # Wall-second (int(clock())) when deny_count was last reset; -1 = never.
+    deny_second: int = -1
 
 
 class RateLimiter:
@@ -106,7 +107,7 @@ class RateLimiter:
                 buckets=consumed,
                 last_access=now,
                 deny_count=entry.deny_count if entry else 0,
-                deny_second=entry.deny_second if entry else -1.0,
+                deny_second=entry.deny_second if entry else -1,
             )
             remaining = max(0, min(int(b.tokens) for b in consumed))
             hourly_rate = self._windows[0].refill_rate
@@ -133,7 +134,7 @@ class RateLimiter:
             buckets=refilled,
             last_access=now,
             deny_count=entry.deny_count if entry else 0,
-            deny_second=entry.deny_second if entry else -1.0,
+            deny_second=entry.deny_second if entry else -1,
         )
         return CheckResult(
             allowed=False,
@@ -152,11 +153,11 @@ class RateLimiter:
 
         entry = self._ip_entries.get(ip)
         if entry is not None:
-            if int(entry.deny_second) == current_second:
+            if entry.deny_second == current_second:
                 entry.deny_count += 1
             else:
                 entry.deny_count = 1
-                entry.deny_second = float(current_second)
+                entry.deny_second = current_second
             count = entry.deny_count
         else:
             count = 1
