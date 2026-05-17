@@ -1,9 +1,10 @@
 import itertools
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.main import app
+from backend.main import _maybe_warn_multi_worker, app
 from backend.router import get_db
 
 _counter = itertools.count(1)
@@ -238,12 +239,8 @@ def test_startup_validation_daily_less_than_hourly_aborts(monkeypatch):
 
 def test_multi_worker_startup_warning_emitted_when_web_concurrency_gt_1(monkeypatch, caplog):
     """WARNING is emitted at startup when WEB_CONCURRENCY > 1."""
-    import logging
-
     monkeypatch.setenv("WEB_CONCURRENCY", "4")
     monkeypatch.delenv("UVICORN_WORKERS", raising=False)
-
-    from backend.main import _maybe_warn_multi_worker
 
     with caplog.at_level(logging.WARNING):
         _maybe_warn_multi_worker()
@@ -254,12 +251,8 @@ def test_multi_worker_startup_warning_emitted_when_web_concurrency_gt_1(monkeypa
 
 def test_multi_worker_startup_warning_emitted_when_uvicorn_workers_gt_1(monkeypatch, caplog):
     """WARNING is emitted at startup when UVICORN_WORKERS > 1."""
-    import logging
-
     monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
     monkeypatch.setenv("UVICORN_WORKERS", "2")
-
-    from backend.main import _maybe_warn_multi_worker
 
     with caplog.at_level(logging.WARNING):
         _maybe_warn_multi_worker()
@@ -270,12 +263,8 @@ def test_multi_worker_startup_warning_emitted_when_uvicorn_workers_gt_1(monkeypa
 
 def test_no_multi_worker_warning_for_single_worker(monkeypatch, caplog):
     """No WARNING is emitted when no multi-worker env var is set."""
-    import logging
-
     monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
     monkeypatch.delenv("UVICORN_WORKERS", raising=False)
-
-    from backend.main import _maybe_warn_multi_worker
 
     with caplog.at_level(logging.WARNING):
         _maybe_warn_multi_worker()
