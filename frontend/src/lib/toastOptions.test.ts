@@ -10,7 +10,7 @@ describe('getToastOptions', () => {
     expect(getToastOptions('warning').duration).toBe(6000)
   })
 
-  it('error → Infinity (sticky)', () => {
-    expect(getToastOptions('error').duration).toBe(Infinity)
+  it('error → 6 000 ms', () => {
+    expect(getToastOptions('error').duration).toBe(6000)
   })
 })

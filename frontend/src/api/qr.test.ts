@@ -33,7 +33,7 @@ describe('getLink', () => {
 
     await getLink('abc1234')
 
-    expect(apiClient.get).toHaveBeenCalledWith('/qr/abc1234')
+    expect(apiClient.get).toHaveBeenCalledWith('/api/qr/abc1234')
   })
 
   it('returns the full link response', async () => {
@@ -68,7 +68,7 @@ describe('patchLink', () => {
 
     const result = await patchLink('abc1234', { original_url: 'https://new.example.com' })
 
-    expect(apiClient.patch).toHaveBeenCalledWith('/qr/abc1234', {
+    expect(apiClient.patch).toHaveBeenCalledWith('/api/qr/abc1234', {
       original_url: 'https://new.example.com',
     })
     expect(result.original_url).toBe('https://new.example.com')
@@ -91,7 +91,7 @@ describe('patchLink', () => {
 
     const result = await patchLink('abc1234', { expires_at: expires })
 
-    expect(apiClient.patch).toHaveBeenCalledWith('/qr/abc1234', { expires_at: expires })
+    expect(apiClient.patch).toHaveBeenCalledWith('/api/qr/abc1234', { expires_at: expires })
     expect(result.expires_at).toBe(expires)
   })
 
@@ -120,7 +120,7 @@ describe('deleteLink', () => {
 
     await deleteLink('abc1234')
 
-    expect(apiClient.delete).toHaveBeenCalledWith('/qr/abc1234')
+    expect(apiClient.delete).toHaveBeenCalledWith('/api/qr/abc1234')
   })
 
   it('resolves without a return value', async () => {
@@ -155,7 +155,7 @@ describe('getAnalytics', () => {
 
     await getAnalytics('abc1234')
 
-    expect(apiClient.get).toHaveBeenCalledWith('/qr/abc1234/analytics')
+    expect(apiClient.get).toHaveBeenCalledWith('/api/qr/abc1234/analytics')
   })
 
   it('returns the analytics response', async () => {
