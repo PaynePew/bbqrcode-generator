@@ -19,6 +19,9 @@ venv/
 # Claude local settings
 .claude/
 
+# Local-only docs (learning notes, not committed)
+.docs-local/
+
 # node_modules
 node_modules/
 
