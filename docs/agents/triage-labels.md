@@ -1,6 +1,7 @@
 # Triage Labels
 
-These labels are used by the `triage` skill to move issues through the triage state machine.
+These labels are used by the `triage` skill to move issues through the triage
+state machine. The tracker is **bd** (see `issue-tracker.md`).
 
 | Role | Label string | Meaning |
 |------|-------------|---------|
@@ -10,14 +11,23 @@ These labels are used by the `triage` skill to move issues through the triage st
 | Human-ready | `ready-for-human` | Needs a human to implement |
 | Won't action | `wontfix` | Will not be addressed |
 
-## GitHub label setup
+## Applying labels in bd
 
-Run once to create these labels in the repo:
+No setup step is required — bd creates labels on first use. Apply with:
 
 ```bash
-gh label create needs-triage --color "e4e669" --description "Maintainer needs to evaluate"
-gh label create needs-info --color "d93f0b" --description "Waiting on reporter"
-gh label create ready-for-agent --color "0075ca" --description "AFK-agent-ready"
-gh label create ready-for-human --color "008672" --description "Ready for human implementation"
-gh label create wontfix --color "ffffff" --description "Will not be actioned"
+bd label add <id> needs-triage      # tag for evaluation
+bd label add <id> ready-for-agent   # mark AFK-ready
+bd label remove <id> needs-triage   # clear when state changes
+bd label list-all                   # see every label in use
 ```
+
+## Note on `ready-for-agent` vs `bd ready`
+
+bd has **native** readiness: `bd ready` lists open issues with no active blockers,
+so claimable AFK work surfaces automatically from the dependency graph. The
+`ready-for-agent` label is therefore largely redundant and optional — prefer
+expressing "can start now" as *no open blockers* (`bd dep`) rather than a label.
+Keep the label only if you want an explicit human-applied signal distinct from
+dependency state. The other labels (`needs-triage`, `needs-info`,
+`ready-for-human`, `wontfix`) remain useful since bd has no native equivalent.

@@ -2,11 +2,11 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues (`PaynePew/qr_code_generator`). See `docs/agents/issue-tracker.md`.
+**Primary tracker is bd (beads)** — see the "Beads Issue Tracker" section below and `docs/agents/issue-tracker.md`. All new issues, including those produced by the `to-issues` and `triage` skills, go into bd via the `bd` CLI. GitHub Issues (`PaynePew/qr_code_generator`) is legacy/historical only (pre-bd slices #23–#26); do not create new work there. Link a migrated GitHub issue with `bd create ... --external-ref gh-<number>`.
 
 ### Triage labels
 
-Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), applied with `bd label add`. Note that `bd ready` natively replaces the `ready-for-agent` gate (open issue + no open blockers). See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
