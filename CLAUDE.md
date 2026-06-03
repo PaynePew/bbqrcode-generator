@@ -2,7 +2,17 @@
 
 ### Issue tracker
 
-**Primary tracker is bd (beads)** — see the "Beads Issue Tracker" section below and `docs/agents/issue-tracker.md`. All new issues, including those produced by the `to-issues` and `triage` skills, go into bd via the `bd` CLI. GitHub Issues (`PaynePew/qr_code_generator`) is legacy/historical only (pre-bd slices #23–#26); do not create new work there. Link a migrated GitHub issue with `bd create ... --external-ref gh-<number>`.
+**Primary tracker is bd (beads)** — bd is the **source of truth**. See the "Beads Issue Tracker" section below and `docs/agents/issue-tracker.md`. All new issues, including those produced by the `to-issues` and `triage` skills, go into bd via the `bd` CLI.
+
+**GitHub Issues mirrors bd** (`PaynePew/qr_code_generator`) **one-way, local→GitHub only**. bd is the source of truth; GitHub is a read-only window for non-terminal stakeholders. ⚠️ **Do NOT run bare `bd github sync`** — it defaults to *bidirectional + `--prefer-newer`*, so GitHub's stale state gets pulled back and **re-opens locally-closed beads** (on 2026-06-03 it reverted 6 closed foundation slices + the ttb epic). Publish progress with push-only instead:
+
+```bash
+bd github push <ids>                         # curated: push specific beads (= sync --push-only --issues <ids>)
+bd github sync --push-only --prefer-local    # push ALL non-closed beads, local always wins
+pwsh -File scripts/bd-publish-loop.ps1       # periodic push-only loop; safe to run WHILE slice-workflow runs
+```
+
+`--push-only` never modifies the local DB, so you can publish continuously during a slice-workflow run without it clobbering your beads. ⚠️ `bd dolt push` does **not** put issues on GitHub's Issues tab (it only syncs the Dolt ref `refs/dolt/data`) — use push-only for GitHub. Token auto-loads from `.beads/.env` (gitignored); refresh on 401 by rewriting `GITHUB_TOKEN=$(gh auth token)` into that file. Caveat: a full push mirrors **all non-closed beads** (incl. `hitl`/throwaway), so `bd delete <id> --force` any junk bead *before* pushing; after a delete run `bd export -o .beads/issues.jsonl` to clear the stale-jsonl warning, and **never** run `bd init --from-jsonl` (it resurrects deleted beads). Pre-bd GitHub issues (#23–#26) are historical — link one with `bd create ... --external-ref gh-<number>`. Full operational detail: bd memory `github-issue-mirror-via-bd-github-push` and `do-not-run-bd-github-sync-on-this`.
 
 ### Triage labels
 
