@@ -9,12 +9,13 @@ verification and persistence stay in their own framework-free modules.
 """
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
 from . import session as session_module
 from . import user_repository
 from .database import get_db
+from .errors import unauthenticated
 from .models import User
 
 
@@ -27,9 +28,9 @@ def get_current_user(
     raw_cookie = request.cookies.get(session_module.COOKIE_NAME, "")
     user_id = session_module.read_session(raw_cookie, config)
     if user_id is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise unauthenticated()
 
     user = user_repository.get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise unauthenticated()
     return user

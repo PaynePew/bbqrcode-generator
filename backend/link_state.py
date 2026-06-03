@@ -1,25 +1,33 @@
+from __future__ import annotations
+
 from datetime import datetime
 from enum import StrEnum
 
+from .errors import AppError, ErrorCode
 from .models import Link
 
 
-class LinkNotFoundError(Exception):
-    """Raised when a token does not resolve to a Link row."""
+class LinkNotFoundError(AppError):
+    """Raised when a token does not resolve to a Link row.
 
-    def __init__(self, token: str):
-        super().__init__(f"Token not found: {token}")
+    Subclasses AppError so it is caught by the unified handler (ADR 0012) and
+    returns 404 NOT_FOUND without a separate exception handler in main.py.
+    """
+
+    def __init__(self, token: str) -> None:
+        super().__init__(ErrorCode.NOT_FOUND, 404, f"Token not found: {token}")
         self.token = token
 
 
-class LinkAlreadyDeletedError(Exception):
+class LinkAlreadyDeletedError(AppError):
     """Raised when a mutation attempts to operate on a Link in DELETED state.
 
-    Terminal state per ADR 0001.
+    Terminal state per ADR 0001. Subclasses AppError so it returns 409
+    LINK_DELETED via the unified handler (ADR 0012).
     """
 
-    def __init__(self, token: str):
-        super().__init__(f"Link is deleted: {token}")
+    def __init__(self, token: str) -> None:
+        super().__init__(ErrorCode.LINK_DELETED, 409, f"Link {token!r} is deleted")
         self.token = token
 
 

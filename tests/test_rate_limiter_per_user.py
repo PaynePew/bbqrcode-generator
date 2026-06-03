@@ -98,7 +98,7 @@ def test_create_cap_is_per_user_not_per_ip(db_session, per_user_env):
     app.dependency_overrides.clear()
 
     assert r.status_code == 429
-    assert r.json() == {"detail": "Rate limit exceeded"}
+    assert r.json()["error"]["code"] == "RATE_LIMITED"
     assert "retry-after" in r.headers
     assert "ratelimit-limit" in r.headers
 
@@ -189,7 +189,7 @@ def test_auth_endpoint_is_per_ip_capped(db_session, auth_limit_env):
     app.dependency_overrides.clear()
 
     assert r.status_code == 429
-    assert r.json() == {"detail": "Rate limit exceeded"}
+    assert r.json()["error"]["code"] == "RATE_LIMITED"
     assert "retry-after" in r.headers
 
 

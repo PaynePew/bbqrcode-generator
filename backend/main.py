@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import logging
 import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth_router import auth_router
-from .authorization import DemoReadOnlyError
-from .link_state import LinkAlreadyDeletedError, LinkNotFoundError
+from .errors import AppError, ErrorCode
 from .router import router, redirect_router
 from .rate_limiter.middleware import RateLimitMiddleware
 
@@ -104,6 +107,32 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _error_body(code: ErrorCode | str, message: str, details: dict | None = None) -> dict:
+    """Build the unified error envelope body (ADR 0012)."""
+    return {"error": {"code": str(code), "message": message, "details": details or {}}}
+
+
+# ---------------------------------------------------------------------------
+# Unified exception handlers — ADR 0012
+# ---------------------------------------------------------------------------
+
+# HTTP status -> ErrorCode mapping for framework-generated exceptions
+# (StarletteHTTPException). Only the common ones need explicit entries; the
+# fallback is INTERNAL_ERROR for 5xx and NOT_FOUND for unknown 4xx.
+_HTTP_STATUS_TO_CODE: dict[int, ErrorCode] = {
+    400: ErrorCode.VALIDATION_ERROR,
+    401: ErrorCode.UNAUTHENTICATED,
+    403: ErrorCode.FORBIDDEN,
+    404: ErrorCode.NOT_FOUND,
+    405: ErrorCode.VALIDATION_ERROR,
+    409: ErrorCode.LINK_DELETED,
+    410: ErrorCode.LINK_GONE,
+    413: ErrorCode.FILE_TOO_LARGE,
+    422: ErrorCode.VALIDATION_ERROR,
+    429: ErrorCode.RATE_LIMITED,
+}
+
+
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RateLimitMiddleware)
 # Credentialed CORS (cookies must flow) forbids wildcard methods/headers — they
@@ -118,24 +147,57 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(LinkNotFoundError)
-async def _link_not_found(_: Request, exc: LinkNotFoundError) -> JSONResponse:
-    return JSONResponse(status_code=404, content={"detail": "Token not found"})
-
-
-@app.exception_handler(LinkAlreadyDeletedError)
-async def _link_already_deleted(_: Request, exc: LinkAlreadyDeletedError) -> JSONResponse:
-    return JSONResponse(status_code=410, content={"detail": "Link is deleted"})
-
-
-@app.exception_handler(DemoReadOnlyError)
-async def _demo_read_only(_: Request, exc: DemoReadOnlyError) -> JSONResponse:
-    # ADR 0009: the read-only demo account hit a mutation. The body carries a
-    # distinct `code` so the frontend renders a "log in to create" nudge instead
-    # of a generic error (it cannot infer demo-ness from the 403 alone).
+@app.exception_handler(AppError)
+async def _handle_app_error(_: Request, exc: AppError) -> JSONResponse:
+    """Handler 1 of 4 — intentional typed application errors (ADR 0012)."""
     return JSONResponse(
-        status_code=403,
-        content={"detail": "Demo account is read-only", "code": "DEMO_READ_ONLY"},
+        status_code=exc.status,
+        content=_error_body(exc.code, exc.message, exc.details),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def _handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+    """Handler 2 of 4 — Pydantic 422 -> VALIDATION_ERROR envelope (ADR 0012).
+
+    The raw ``errors()`` list is preserved in ``details.fields`` so the frontend
+    can highlight individual form fields, but the top-level code is always the
+    stable ``VALIDATION_ERROR``.
+    """
+    details = {"fields": exc.errors()}
+    return JSONResponse(
+        status_code=422,
+        content=_error_body(ErrorCode.VALIDATION_ERROR, "Validation error", details),
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _handle_http_exception(_: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Handler 3 of 4 — framework HTTPExceptions (404, 405, …) to envelope (ADR 0012).
+
+    Preserves any extra response headers the framework attached (e.g. Allow: for
+    405 Method Not Allowed).
+    """
+    code = _HTTP_STATUS_TO_CODE.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
+    message = exc.detail if isinstance(exc.detail, str) else "Request error"
+    headers: dict[str, str] = getattr(exc, "headers", None) or {}
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_error_body(code, message),
+        headers=headers,
+    )
+
+
+@app.exception_handler(Exception)
+async def _handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
+    """Handler 4 of 4 — catch-all; logged with a correlation id, never leaks internals.
+
+    No stack trace or exception message is returned to the client (ADR 0012).
+    """
+    _logger.exception("Unhandled exception: %s", type(exc).__name__)
+    return JSONResponse(
+        status_code=500,
+        content=_error_body(ErrorCode.INTERNAL_ERROR, "An unexpected error occurred"),
     )
 
 

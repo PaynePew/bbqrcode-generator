@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from . import scan_repository
 from .auth import get_current_user
 from .authorization import authorize_owner, forbid_if_demo
 from .database import get_db
+from .errors import AppError, ErrorCode, invalid_url, link_gone, token_allocation_failed
 from .link_state import LinkState, derive_state
 from .models import Link, User
 from .token_generator import TokenCollisionError
@@ -84,7 +87,7 @@ def create_qr(
     try:
         normalized_url = validate_and_normalize(body.url)
     except InvalidURLError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        raise invalid_url(str(e))
 
     cfg = _config()
     now = _now_utc()
@@ -100,7 +103,7 @@ def create_qr(
             now=now,
         )
     except TokenCollisionError:
-        raise HTTPException(status_code=500, detail="Token generation failed")
+        raise token_allocation_failed()
 
     base_url = cfg["base_url"]
     return {
@@ -127,7 +130,7 @@ def redirect(token: str, request: Request, db: Session = Depends(get_db)):
     state = derive_state(link, _now_utc())
     if not state.is_redirectable:
         _log_scan(db, token, 410, request)
-        raise HTTPException(status_code=410, detail="Link is gone")
+        raise link_gone(token)
 
     _log_scan(db, token, 302, request)
     return RedirectResponse(url=link.original_url, status_code=302)
@@ -208,16 +211,16 @@ def patch_link(
 
     fields_to_update = body.model_fields_set & {"original_url", "expires_at"}
     if not fields_to_update:
-        raise HTTPException(status_code=422, detail="No updatable fields provided")
+        raise AppError(ErrorCode.VALIDATION_ERROR, 422, "No updatable fields provided")
 
     normalized_url: Optional[str] = None
     if "original_url" in fields_to_update:
         if body.original_url is None:
-            raise HTTPException(status_code=422, detail="original_url cannot be null")
+            raise AppError(ErrorCode.VALIDATION_ERROR, 422, "original_url cannot be null")
         try:
             normalized_url = validate_and_normalize(body.original_url)
         except InvalidURLError as e:
-            raise HTTPException(status_code=422, detail=str(e))
+            raise invalid_url(str(e))
 
     normalized_expires: Optional[datetime] = None
     if "expires_at" in fields_to_update:

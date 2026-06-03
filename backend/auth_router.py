@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from . import google_identity
 from . import session as session_module
 from . import user_repository
 from .auth import get_current_user
+from .errors import AppError, ErrorCode
 from .google_identity import InvalidGoogleTokenError
 from .models import User
 from .router import _now_utc, get_db
@@ -28,7 +29,7 @@ auth_router = APIRouter(prefix="/api/auth")
 def _google_client_id() -> str:
     client_id = os.environ.get("GOOGLE_CLIENT_ID")
     if not client_id:
-        raise HTTPException(status_code=503, detail="Google sign-in is not configured")
+        raise AppError(ErrorCode.INTERNAL_ERROR, 503, "Google sign-in is not configured")
     return client_id
 
 
@@ -72,7 +73,7 @@ def start_session(
     try:
         identity = google_identity.verify_google_id_token(body.credential, client_id)
     except InvalidGoogleTokenError:
-        raise HTTPException(status_code=401, detail="Invalid Google credential")
+        raise AppError(ErrorCode.UNAUTHENTICATED, 401, "Invalid Google credential")
 
     user = user_repository.upsert_user(db, identity, now=_now_utc())
     _set_session_cookie(response, user.id, session_module.SessionConfig())
@@ -92,7 +93,7 @@ def start_demo_session(
     """
     demo = user_repository.get_demo_user(db)
     if demo is None:
-        raise HTTPException(status_code=503, detail="Demo account is not available")
+        raise AppError(ErrorCode.INTERNAL_ERROR, 503, "Demo account is not available")
 
     _set_session_cookie(response, demo.id, session_module.SessionConfig())
     return _user_response(demo)

@@ -160,11 +160,14 @@ class TestPatchEndpoint:
         resp = auth_client.get(f"/r/{token}", follow_redirects=False)
         assert resp.headers["location"] == "https://example.com/updated"
 
-    def test_patch_returns_410_for_deleted_link(self, auth_client):
+    def test_patch_returns_409_link_deleted_for_deleted_link(self, auth_client):
+        # ADR 0012: mutation on a deleted (terminal) Link -> 409 LINK_DELETED.
+        # The Link still exists in trash; the request conflicts with terminal state.
         token = auth_client.post("/api/qr/create", json={"url": "https://example.com/p1"}).json()["token"]
         auth_client.delete(f"/api/qr/{token}")
         resp = auth_client.patch(f"/api/qr/{token}", json={"original_url": "https://example.com/new"})
-        assert resp.status_code == 410
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "LINK_DELETED"
 
     def test_patch_reactivates_expired_link_with_future_expiry(self, auth_client):
         token = auth_client.post(

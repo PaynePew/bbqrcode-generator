@@ -75,7 +75,10 @@ def test_nth_plus_one_request_returns_429(rl_client):
         assert _create(rl_client).status_code == 200
     r = _create(rl_client)
     assert r.status_code == 429
-    assert r.json() == {"detail": "Rate limit exceeded"}
+    body = r.json()
+    # ADR 0012: unified error envelope; code is stable RATE_LIMITED.
+    assert body["error"]["code"] == "RATE_LIMITED"
+    assert body["error"]["message"] == "Rate limit exceeded"
     assert "retry-after" in r.headers
     assert "ratelimit-limit" in r.headers
     assert "ratelimit-remaining" in r.headers

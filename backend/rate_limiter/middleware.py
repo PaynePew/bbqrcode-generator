@@ -146,7 +146,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key, result.deny_bucket, result.limit, result.retry_after_seconds, rule.path
             )
             return JSONResponse(
-                content={"detail": "Rate limit exceeded"},
+                content={
+                    "error": {
+                        "code": "RATE_LIMITED",
+                        "message": "Rate limit exceeded",
+                        "details": {"retry_after": result.retry_after_seconds},
+                    }
+                },
                 status_code=429,
                 headers={
                     **_ratelimit_headers(result),

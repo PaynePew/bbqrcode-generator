@@ -18,8 +18,8 @@ from fastapi.testclient import TestClient
 
 from backend import link_repository
 from backend.auth import get_current_user
-from backend.authorization import DemoReadOnlyError, authorize_owner, forbid_if_demo
-from backend.link_state import LinkNotFoundError
+from backend.authorization import authorize_owner, forbid_if_demo
+from backend.errors import AppError, ErrorCode
 from backend.main import app
 from backend.models import Link, User
 from backend.router import get_db
@@ -104,14 +104,18 @@ class TestAuthorizeOwnerRule:
         # No exception means authorized.
         authorize_owner(self._link(owner_id=7), self._user(7))
 
-    def test_non_owner_raises_link_not_found(self):
-        with pytest.raises(LinkNotFoundError):
+    def test_non_owner_raises_not_found_app_error(self):
+        # ADR 0012: authorize_owner raises AppError(NOT_FOUND, 404) — owner-404 rule.
+        with pytest.raises(AppError) as exc:
             authorize_owner(self._link(owner_id=7), self._user(99))
+        assert exc.value.code is ErrorCode.NOT_FOUND
+        assert exc.value.status == 404
 
     def test_ownerless_link_is_never_owned(self):
         # Legacy pre-auth Link (owner_id NULL) is owned by no one -> 404 for all.
-        with pytest.raises(LinkNotFoundError):
+        with pytest.raises(AppError) as exc:
             authorize_owner(self._link(owner_id=None), self._user(7))
+        assert exc.value.code is ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +139,14 @@ class TestForbidIfDemoRule:
         # No exception means the mutation may proceed.
         forbid_if_demo(self._user(is_demo=False))
 
-    def test_demo_user_raises_demo_read_only(self):
+    def test_demo_user_raises_app_error_demo_read_only(self):
         # The shared demo account is read-only by construction (ADR 0009):
         # any mutation is rejected so the seeded data stays pristine.
-        with pytest.raises(DemoReadOnlyError):
+        # Now raises AppError(DEMO_READ_ONLY, 403) per ADR 0012.
+        with pytest.raises(AppError) as exc:
             forbid_if_demo(self._user(is_demo=True))
+        assert exc.value.code is ErrorCode.DEMO_READ_ONLY
+        assert exc.value.status == 403
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +307,7 @@ class TestDemoReadOnly:
         demo = make_user(db_session, email="demo@example.com", is_demo=True)
         resp = as_user(demo).post("/api/qr/create", json={"url": NOW_URL})
         assert resp.status_code == 403
-        assert resp.json()["code"] == "DEMO_READ_ONLY"
+        assert resp.json()["error"]["code"] == "DEMO_READ_ONLY"
 
     def test_demo_patch_own_link_is_forbidden_with_code(self, db_session, as_user):
         demo = make_user(db_session, email="demo@example.com", is_demo=True)
@@ -309,14 +316,14 @@ class TestDemoReadOnly:
             f"/api/qr/{token}", json={"original_url": "https://example.com/new"}
         )
         assert resp.status_code == 403
-        assert resp.json()["code"] == "DEMO_READ_ONLY"
+        assert resp.json()["error"]["code"] == "DEMO_READ_ONLY"
 
     def test_demo_delete_own_link_is_forbidden_with_code(self, db_session, as_user):
         demo = make_user(db_session, email="demo@example.com", is_demo=True)
         token = _mint_owned(db_session, demo)
         resp = as_user(demo).delete(f"/api/qr/{token}")
         assert resp.status_code == 403
-        assert resp.json()["code"] == "DEMO_READ_ONLY"
+        assert resp.json()["error"]["code"] == "DEMO_READ_ONLY"
 
     def test_demo_patch_does_not_mutate_the_link(self, db_session, as_user):
         demo = make_user(db_session, email="demo@example.com", is_demo=True)
