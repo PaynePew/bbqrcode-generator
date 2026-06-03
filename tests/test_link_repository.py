@@ -6,17 +6,30 @@ from backend import link_repository
 from backend.link_state import LinkAlreadyDeletedError, LinkNotFoundError
 from backend.models import Link
 
+from tests.conftest import make_user
+
 
 NOW = datetime(2026, 5, 8, 12, 0, 0)
 SECRET = "unit-test-secret"
 
 
+@pytest.fixture
+def owner(db_session):
+    """A persisted User to own the Links created in these repository tests.
+
+    create_link stamps owner_id (ADR 0009), and the FK to users.id requires a
+    real row.
+    """
+    return make_user(db_session)
+
+
 class TestGetLink:
-    def test_returns_link_when_present(self, db_session):
+    def test_returns_link_when_present(self, db_session, owner):
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/a",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
@@ -30,21 +43,23 @@ class TestGetLink:
 
 
 class TestCreateLink:
-    def test_inserts_with_7_char_token(self, db_session):
+    def test_inserts_with_7_char_token(self, db_session, owner):
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/b",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
         assert len(link.token) == 7
 
-    def test_persists_normalized_url_and_timestamps(self, db_session):
+    def test_persists_normalized_url_and_timestamps(self, db_session, owner):
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/c",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
@@ -54,22 +69,24 @@ class TestCreateLink:
         assert row.updated_at == NOW
         assert row.deleted_at is None
 
-    def test_optional_expires_at_is_persisted(self, db_session):
+    def test_optional_expires_at_is_persisted(self, db_session, owner):
         future = NOW + timedelta(days=7)
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/d",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=future,
             now=NOW,
         )
         assert link.expires_at == future
 
-    def test_two_calls_same_url_return_different_tokens(self, db_session):
+    def test_two_calls_same_url_return_different_tokens(self, db_session, owner):
         a = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/same",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
@@ -77,6 +94,7 @@ class TestCreateLink:
             db_session,
             normalized_url="https://example.com/same",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
@@ -85,17 +103,18 @@ class TestCreateLink:
 
 
 class TestApplyPatch:
-    def _seed(self, db_session, **kwargs):
+    def _seed(self, db_session, owner, **kwargs):
         return link_repository.create_link(
             db_session,
             normalized_url=kwargs.get("normalized_url", "https://example.com/seed"),
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=kwargs.get("expires_at"),
             now=NOW,
         )
 
-    def test_updates_only_listed_fields(self, db_session):
-        link = self._seed(db_session)
+    def test_updates_only_listed_fields(self, db_session, owner):
+        link = self._seed(db_session, owner)
         later = NOW + timedelta(hours=1)
         link_repository.apply_patch(
             db_session,
@@ -109,9 +128,9 @@ class TestApplyPatch:
         assert link.expires_at is None
         assert link.updated_at == later
 
-    def test_clears_expires_at_when_passed_none(self, db_session):
+    def test_clears_expires_at_when_passed_none(self, db_session, owner):
         future = NOW + timedelta(days=1)
-        link = self._seed(db_session, expires_at=future)
+        link = self._seed(db_session, owner, expires_at=future)
         link_repository.apply_patch(
             db_session,
             link,
@@ -121,8 +140,8 @@ class TestApplyPatch:
         )
         assert link.expires_at is None
 
-    def test_no_fields_only_bumps_updated_at(self, db_session):
-        link = self._seed(db_session)
+    def test_no_fields_only_bumps_updated_at(self, db_session, owner):
+        link = self._seed(db_session, owner)
         later = NOW + timedelta(hours=2)
         original_url = link.original_url
         link_repository.apply_patch(
@@ -134,9 +153,9 @@ class TestApplyPatch:
         assert link.original_url == original_url
         assert link.updated_at == later
 
-    def test_refuses_to_patch_deleted_link(self, db_session):
+    def test_refuses_to_patch_deleted_link(self, db_session, owner):
         # ADR 0001 enforced at the repository.
-        link = self._seed(db_session)
+        link = self._seed(db_session, owner)
         link_repository.mark_deleted(db_session, link, NOW)
 
         with pytest.raises(LinkAlreadyDeletedError) as exc:
@@ -149,10 +168,10 @@ class TestApplyPatch:
             )
         assert exc.value.token == link.token
 
-    def test_patches_expired_link_for_reactivation(self, db_session):
+    def test_patches_expired_link_for_reactivation(self, db_session, owner):
         # ADR 0001: expired is reversible.
         past = NOW - timedelta(days=1)
-        link = self._seed(db_session, expires_at=past)
+        link = self._seed(db_session, owner, expires_at=past)
         future = NOW + timedelta(days=30)
         link_repository.apply_patch(
             db_session,
@@ -165,22 +184,24 @@ class TestApplyPatch:
 
 
 class TestMarkDeleted:
-    def test_sets_deleted_at(self, db_session):
+    def test_sets_deleted_at(self, db_session, owner):
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/del",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )
         link_repository.mark_deleted(db_session, link, NOW)
         assert link.deleted_at == NOW
 
-    def test_idempotent_does_not_overwrite(self, db_session):
+    def test_idempotent_does_not_overwrite(self, db_session, owner):
         link = link_repository.create_link(
             db_session,
             normalized_url="https://example.com/idem",
             secret=SECRET,
+            owner_id=owner.id,
             expires_at=None,
             now=NOW,
         )

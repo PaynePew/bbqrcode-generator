@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 from . import analytics
 from . import link_repository
 from . import scan_repository
-from .database import SessionLocal
+from .auth import get_current_user
+from .authorization import authorize_owner, forbid_if_demo
+from .database import get_db
 from .link_state import LinkState, derive_state
-from .models import Link
+from .models import Link, User
 from .token_generator import TokenCollisionError
 from .url_validator import validate_and_normalize, InvalidURLError
 from .qr_generator import generate_qr_png
@@ -21,13 +23,9 @@ from .rate_limiter.ip_extraction import extract_client_ip
 router = APIRouter(prefix="/api")
 redirect_router = APIRouter()
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# get_db now lives in backend.database (shared with the auth layer to avoid a
+# router<->auth import cycle); it is imported above so existing
+# `from backend.router import get_db` call sites keep working.
 
 
 def _config():
@@ -72,7 +70,17 @@ class CreateRequest(BaseModel):
 
 
 @router.post("/qr/create")
-def create_qr(body: CreateRequest, db: Session = Depends(get_db)):
+def create_qr(
+    body: CreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Login-to-create (ADR 0009): get_current_user raises 401 when there is no
+    # valid session, so an unauthenticated create never reaches here. The created
+    # Link is stamped with the caller as owner.
+    # The demo account is read-only — reject before any work so a guest sees the
+    # DEMO_READ_ONLY login nudge rather than a 422 on a URL it can't even submit.
+    forbid_if_demo(current_user)
     try:
         normalized_url = validate_and_normalize(body.url)
     except InvalidURLError as e:
@@ -87,6 +95,7 @@ def create_qr(body: CreateRequest, db: Session = Depends(get_db)):
             db,
             normalized_url=normalized_url,
             secret=cfg["secret"],
+            owner_id=current_user.id,
             expires_at=expires_at,
             now=now,
         )
@@ -124,9 +133,51 @@ def redirect(token: str, request: Request, db: Session = Depends(get_db)):
     return RedirectResponse(url=link.original_url, status_code=302)
 
 
+@router.get("/qr")
+def list_links(
+    deleted: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Owner dashboard (ADR 0009): the caller's own Links only, newest-first,
+    # soft-deleted excluded unless ?deleted=true (the trash filter). Auth is
+    # required — get_current_user 401s an anonymous caller. Returns an
+    # items + next_cursor envelope; next_cursor is a forward-compat placeholder
+    # (no pagination yet). Total scan count per Link comes from one aggregate
+    # query (no N+1).
+    links = link_repository.list_links_for_owner(
+        db, current_user.id, include_deleted=deleted
+    )
+    scan_counts = scan_repository.scan_counts_for_tokens(
+        db, [link.token for link in links]
+    )
+    cfg = _config()
+    now = _now_utc()
+    items = [
+        {
+            "token": link.token,
+            "original_url": link.original_url,
+            "short_url": f"{cfg['base_url']}/r/{link.token}",
+            "status": derive_state(link, now),
+            "scan_count": scan_counts.get(link.token, 0),
+            "created_at": link.created_at.isoformat(),
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+        }
+        for link in links
+    ]
+    return {"items": items, "next_cursor": None}
+
+
 @router.get("/qr/{token}")
-def get_link_info(token: str, db: Session = Depends(get_db)):
+def get_link_info(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Owner-only (ADR 0009): info carries original_url. A non-owner is treated as
+    # not-found (404, not 403) so Token existence is not leaked.
     link = link_repository.get_link(db, token)
+    authorize_owner(link, current_user)
     cfg = _config()
     state = derive_state(link, _now_utc())
     return _link_response(link, cfg["base_url"], state)
@@ -139,8 +190,20 @@ class PatchRequest(BaseModel):
 
 
 @router.patch("/qr/{token}")
-def patch_link(token: str, body: PatchRequest, db: Session = Depends(get_db)):
+def patch_link(
+    token: str,
+    body: PatchRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Owner-only (ADR 0009): closes the redirect-hijack hole — a stranger who
+    # photographed the QR (the Token is not secret) cannot repoint it. Non-owner
+    # -> 404, authorized before any field is read. Ownership is checked first so a
+    # demo user targeting a Link it doesn't own still gets 404 (no leak); only a
+    # demo user's own Link reaches the read-only 403 DEMO_READ_ONLY.
     link = link_repository.get_link(db, token)
+    authorize_owner(link, current_user)
+    forbid_if_demo(current_user)
     now = _now_utc()
 
     fields_to_update = body.model_fields_set & {"original_url", "expires_at"}
@@ -175,15 +238,31 @@ def patch_link(token: str, body: PatchRequest, db: Session = Depends(get_db)):
 
 
 @router.delete("/qr/{token}")
-def delete_link(token: str, db: Session = Depends(get_db)):
+def delete_link(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Owner-only (ADR 0009): only the owner can take down their campaign;
+    # non-owner -> 404. A demo user owns its seeded Links but is read-only, so
+    # its own delete is rejected 403 DEMO_READ_ONLY (ownership checked first).
     link = link_repository.get_link(db, token)
+    authorize_owner(link, current_user)
+    forbid_if_demo(current_user)
     link_repository.mark_deleted(db, link, _now_utc())
     return {"token": token, "status": "deleted"}
 
 
 @router.get("/qr/{token}/analytics")
-def get_analytics(token: str, db: Session = Depends(get_db)):
-    link_repository.get_link(db, token)
+def get_analytics(
+    token: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Owner-only (ADR 0009): campaign performance stays private; non-owner -> 404.
+    # ADR 0006 still binds — aggregates only, never raw scanner IPs.
+    link = link_repository.get_link(db, token)
+    authorize_owner(link, current_user)
     scans = scan_repository.scans_for_token(db, token)
     return {
         "token": token,
