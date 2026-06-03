@@ -7,9 +7,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .database import engine
+from .auth_router import auth_router
+from .authorization import DemoReadOnlyError
 from .link_state import LinkAlreadyDeletedError, LinkNotFoundError
-from .models import Base
 from .router import router, redirect_router
 from .rate_limiter.middleware import RateLimitMiddleware
 
@@ -71,14 +71,21 @@ def _maybe_warn_multi_worker() -> None:
         )
 
 
+def _validate_window_pair(hourly_var: str, hourly_default: str, daily_var: str, daily_default: str):
+    """Validate one hourly/daily limiter pair: positive ints with daily >= hourly."""
+    hourly = _parse_positive_int(os.environ.get(hourly_var, hourly_default), hourly_var)
+    daily = _parse_positive_int(os.environ.get(daily_var, daily_default), daily_var)
+    if daily < hourly:
+        raise RuntimeError(f"{daily_var} ({daily}) must be >= {hourly_var} ({hourly})")
+
+
 def _validate_rate_limit_env():
     _parse_bool(os.environ.get("RATE_LIMIT_ENABLED", "true"), "RATE_LIMIT_ENABLED")
-    hourly = _parse_positive_int(os.environ.get("RATE_LIMIT_HOURLY", "30"), "RATE_LIMIT_HOURLY")
-    daily = _parse_positive_int(os.environ.get("RATE_LIMIT_DAILY", "200"), "RATE_LIMIT_DAILY")
-    if daily < hourly:
-        raise RuntimeError(
-            f"RATE_LIMIT_DAILY ({daily}) must be >= RATE_LIMIT_HOURLY ({hourly})"
-        )
+    # Per-user create limiter.
+    _validate_window_pair("RATE_LIMIT_HOURLY", "30", "RATE_LIMIT_DAILY", "200")
+    # Per-IP auth-endpoint limiter (account-farming guard, ADR 0009). Same
+    # env-driven, validated-at-startup contract as the create limiter.
+    _validate_window_pair("AUTH_RATE_LIMIT_HOURLY", "10", "AUTH_RATE_LIMIT_DAILY", "40")
 
 
 def _validate_trusted_proxies_env():
@@ -94,17 +101,20 @@ async def lifespan(app: FastAPI):
     _validate_rate_limit_env()
     _validate_trusted_proxies_env()
     _maybe_warn_multi_worker()
-    Base.metadata.create_all(bind=engine)
     yield
 
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RateLimitMiddleware)
+# Credentialed CORS (cookies must flow) forbids wildcard methods/headers — they
+# must be enumerated (ADR 0009). Same-origin prod needs no CORS; this serves the
+# dev Vite origin only.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://localhost:\d+",
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -118,5 +128,17 @@ async def _link_already_deleted(_: Request, exc: LinkAlreadyDeletedError) -> JSO
     return JSONResponse(status_code=410, content={"detail": "Link is deleted"})
 
 
+@app.exception_handler(DemoReadOnlyError)
+async def _demo_read_only(_: Request, exc: DemoReadOnlyError) -> JSONResponse:
+    # ADR 0009: the read-only demo account hit a mutation. The body carries a
+    # distinct `code` so the frontend renders a "log in to create" nudge instead
+    # of a generic error (it cannot infer demo-ness from the 403 alone).
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "Demo account is read-only", "code": "DEMO_READ_ONLY"},
+    )
+
+
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(redirect_router)
