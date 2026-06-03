@@ -139,8 +139,6 @@ class JSONFormatter(logging.Formatter):
 # Logging setup
 # ---------------------------------------------------------------------------
 
-_LOG_DIR = os.environ.get("LOG_DIR", "logs")
-_LOG_FILE = os.path.join(_LOG_DIR, "app.log")
 _ROTATION_WHEN = "midnight"
 _BACKUP_COUNT = 30  # ~30-day retention
 
@@ -167,10 +165,12 @@ def configure_logging(level: int = logging.INFO) -> None:
 
     # File handler with daily rotation (skip in test environments).
     if os.environ.get("LOG_TO_FILE", "false").lower() == "true":
+        log_dir = os.environ.get("LOG_DIR", "logs")
+        log_file = os.path.join(log_dir, "app.log")
         try:
-            os.makedirs(_LOG_DIR, exist_ok=True)
+            os.makedirs(log_dir, exist_ok=True)
             file_handler = logging.handlers.TimedRotatingFileHandler(
-                _LOG_FILE,
+                log_file,
                 when=_ROTATION_WHEN,
                 backupCount=_BACKUP_COUNT,
                 encoding="utf-8",
@@ -179,4 +179,4 @@ def configure_logging(level: int = logging.INFO) -> None:
             file_handler.addFilter(CorrelationIdFilter(default_value="-"))
             root.addHandler(file_handler)
         except OSError:
-            root.warning("Could not create log file handler at %s", _LOG_FILE)
+            root.warning("Could not create log file handler at %s", log_file)

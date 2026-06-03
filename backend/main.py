@@ -213,12 +213,10 @@ async def _handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
     """
     cid = correlation_id.get(None)
     _logger.exception("Unhandled exception: %s", type(exc).__name__)
-    details: dict = {}
-    if cid:
-        details["correlation_id"] = cid
+    details: dict | None = {"correlation_id": cid} if cid else None
     return JSONResponse(
         status_code=500,
-        content=_error_body(ErrorCode.INTERNAL_ERROR, "An unexpected error occurred", details or None),
+        content=_error_body(ErrorCode.INTERNAL_ERROR, "An unexpected error occurred", details),
     )
 
 
