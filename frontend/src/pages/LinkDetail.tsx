@@ -24,6 +24,7 @@ import { getStyle } from '@/state/styleStore'
 import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
 import { useLinkEntry, type DerivedEntry } from '@/state/linkEntry'
 import { getToastOptions } from '@/lib/toastOptions'
+import { nudgeIfDemoReadOnly } from '@/lib/demoNudge'
 import { computeExpiresAt, resolveExpiresAt, toDatetimeLocalValue, PRESET_LABELS, type ExpiresAtPreset } from '@/lib/expiresAtPresets'
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/CopyButton'
@@ -305,6 +306,7 @@ function EditUrlForm({
         onSuccess()
       } catch (err) {
         const apiErr = err as ApiError
+        if (nudgeIfDemoReadOnly(apiErr)) return
         if (apiErr.status !== 422) {
           toast.error('更新失敗，請稍後再試。', getToastOptions('error'))
         }
@@ -427,7 +429,8 @@ function EditExpiresAtForm({
       await entry.updateExpiry(resolveExpiresAt(preset, customValue))
       toast.success('到期時間已更新', getToastOptions('success'))
       onSuccess()
-    } catch {
+    } catch (err) {
+      if (nudgeIfDemoReadOnly(err as ApiError)) return
       toast.error('更新失敗，請稍後再試。', getToastOptions('error'))
     }
   }
@@ -542,7 +545,8 @@ export function LinkDetail() {
       await entry.markDeleted()
       setShowDeleteConfirm(false)
       toast.success('連結已刪除', getToastOptions('success'))
-    } catch {
+    } catch (err) {
+      if (nudgeIfDemoReadOnly(err as ApiError)) return
       toast.error('刪除失敗，請稍後再試。', getToastOptions('error'))
     }
   }
@@ -580,7 +584,7 @@ export function LinkDetail() {
             載入中
           </span>
         ) : (
-          <StatusBadge status={entry.status} />
+          entry.status && <StatusBadge status={entry.status} />
         )}
       </div>
 
@@ -591,13 +595,15 @@ export function LinkDetail() {
         </div>
       )}
 
-      {entry.queryError && entry.status === 'missing' && (
+      {/* Owner-only (ADR 0009): a Link the caller does not own returns 404,
+          identical to a Link that does not exist — existence is not leaked. */}
+      {entry.queryError?.status === 404 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           找不到此連結。它可能已從系統中移除。
         </div>
       )}
 
-      {entry.queryError && entry.status !== 'missing' && (
+      {entry.queryError && entry.queryError.status !== 404 && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           載入連結資訊時發生錯誤，請稍後再試。
         </div>

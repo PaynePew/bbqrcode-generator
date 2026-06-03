@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { linkKey, analyticsKey } from './queryKeys'
+import { linkKey, linkListKey, analyticsKey, currentUserKey } from './queryKeys'
 
 describe('linkKey', () => {
   it('returns a tuple with the link namespace and token', () => {
@@ -11,6 +11,17 @@ describe('linkKey', () => {
   })
 })
 
+describe('linkListKey', () => {
+  it('returns the links namespace tagged with the deleted filter', () => {
+    expect(linkListKey(false)).toEqual(['links', { deleted: false }])
+    expect(linkListKey(true)).toEqual(['links', { deleted: true }])
+  })
+
+  it('distinguishes the active list from the trash list', () => {
+    expect(linkListKey(false)).not.toEqual(linkListKey(true))
+  })
+})
+
 describe('analyticsKey', () => {
   it('returns a tuple with the analytics namespace and token', () => {
     expect(analyticsKey('abc123')).toEqual(['analytics', 'abc123'])
@@ -18,5 +29,11 @@ describe('analyticsKey', () => {
 
   it('is distinct from the link key for the same token', () => {
     expect(analyticsKey('abc123')).not.toEqual(linkKey('abc123'))
+  })
+})
+
+describe('currentUserKey', () => {
+  it('returns the auth/me namespace tuple', () => {
+    expect(currentUserKey()).toEqual(['auth', 'me'])
   })
 })
