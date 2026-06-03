@@ -131,11 +131,9 @@ class TestEnvelopeShape:
         """Catch-all handler must not leak stack / exception detail to the client."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
-        from backend.main import _handle_unexpected_error, _handle_app_error, _handle_http_exception, _handle_validation_error
-        from fastapi.exceptions import RequestValidationError
-        from starlette.exceptions import HTTPException as StarletteHTTPException
+        from backend.main import _handle_unexpected_error
 
-        # Build a minimal app that shares the same handlers as the real app.
+        # Build a minimal app wired with the real catch-all handler.
         mini = FastAPI()
         mini.add_exception_handler(Exception, _handle_unexpected_error)  # type: ignore[arg-type]
 
