@@ -55,9 +55,23 @@ A **Token** is the 7-character Base62 identifier that appears in the short URL. 
 
 Each POST always produces a new token — duplicate URLs are not deduplicated. Normalization exists for security and storage consistency, not as a deduplication key.
 
+## Label
+
+A **Label** is a short, owner-authored name for a single **Link**, used to tell apart the multiple Links (tokens) an owner mints for the same destination URL — e.g. "Lobby poster" and "Newsletter" both pointing at the same `shop.com/sale`.
+
+A Label belongs to one Link (one **Token**) — never to a URL, and never to a group of Links. There is no **Campaign** entity: grouping is something an owner does by eye through Labels, not a concept the system tracks.
+
+Labels are **optional** and **not unique** — a Link may be unlabeled, and the same text may repeat across an owner's Links. The Label is the owner's own naming space; the system does not enforce distinctness. Labels are **owner-private**: they surface only where an owner manages their own Links, never on the public redirect or in the QR image (which carry only the Short URL).
+
 ## Short URL
 
 The **Short URL** is the full redirect endpoint URL (`{BASE_URL}/r/{token}`). It is encoded into the QR code image.
+
+## Customization
+
+**Customization** is a Link owner's chosen visual treatment of its QR — foreground / background colour, dot style, and an optional embedded **logo**. It is purely cosmetic: a customized QR still encodes the same **Short URL**, so editing the destination never invalidates it. Render resolution and error-correction level are system-managed, not customization choices — resolution is fixed (on-screen size is a layout concern) and error correction is raised automatically when a logo is present so the code still scans.
+
+A **vanilla QR** is the plain black-and-white image the backend can regenerate for any Link on demand; a **customized QR** is the owner's styled variant, persisted so it survives across sessions and devices. Customization belongs to the owner and persists per-user, not per-browser. The rendered customized QR is public (it is the code people scan and share); the customization's inputs — the style recipe and any uploaded logo — are owner-private.
 
 ## Link Lifecycle
 
