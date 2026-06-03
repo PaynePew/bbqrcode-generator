@@ -7,9 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .database import engine
 from .link_state import LinkAlreadyDeletedError, LinkNotFoundError
-from .models import Base
 from .router import router, redirect_router
 from .rate_limiter.middleware import RateLimitMiddleware
 
@@ -94,7 +92,8 @@ async def lifespan(app: FastAPI):
     _validate_rate_limit_env()
     _validate_trusted_proxies_env()
     _maybe_warn_multi_worker()
-    Base.metadata.create_all(bind=engine)
+    # Schema is managed by Alembic migrations.
+    # Run `alembic upgrade head` as an explicit deploy step — not here at startup.
     yield
 
 

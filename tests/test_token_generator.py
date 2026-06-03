@@ -76,3 +76,35 @@ class TestAllocateToken:
 
         allocate_token("https://example.com", "secret", try_insert)
         assert tokens_tried[0] != tokens_tried[1]
+
+    def test_same_url_repeated_four_times_yields_distinct_tokens(self):
+        """Submitting the same URL N>=4 times must produce 4 distinct tokens with no error.
+
+        This is the key acceptance criterion for Phase 0: the nonce must be
+        cryptographically random (not the retry counter), so same-URL requests
+        produce unbounded distinct tokens instead of capping at MAX_RETRIES.
+        """
+        tokens_minted = []
+
+        def always_succeeds(token):
+            tokens_minted.append(token)
+
+        for _ in range(4):
+            allocate_token("https://example.com", "secret", always_succeeds)
+
+        assert len(tokens_minted) == 4, "Expected exactly 4 successful inserts"
+        assert len(set(tokens_minted)) == 4, "All 4 tokens must be distinct"
+
+    def test_nonce_is_not_sequential_across_calls(self):
+        """Two successive allocate_token calls for the same URL must not share the
+        nonce used in the first call, proving the nonce is random, not a counter."""
+        first_tokens: list[str] = []
+        second_tokens: list[str] = []
+
+        allocate_token("https://example.com", "secret", first_tokens.append)
+        allocate_token("https://example.com", "secret", second_tokens.append)
+
+        # With a counter nonce starting at 0, both calls would produce the same
+        # token (nonce=0 each time).  A random nonce makes collision astronomically
+        # unlikely (1/62^7 ≈ 1 in 3.5 billion per pair).
+        assert first_tokens[0] != second_tokens[0]
