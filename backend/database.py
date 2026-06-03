@@ -1,17 +1,24 @@
 import os
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+from collections.abc import Iterator
 
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./qr_codes.db")
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://localhost/qr_codes")
 
-
-@event.listens_for(engine, "connect")
-def set_wal_mode(dbapi_conn, _):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.close()
-
+engine = create_engine(DATABASE_URL)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def get_db() -> Iterator[Session]:
+    """Request-scoped Session provider (FastAPI dependency).
+
+    Lives with the engine so both the HTTP router and the auth layer can depend
+    on it without importing one another (avoids a router<->auth import cycle).
+    """
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
