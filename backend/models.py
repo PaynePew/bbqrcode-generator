@@ -1,10 +1,23 @@
 from datetime import datetime
-from sqlalchemy import Integer, String, DateTime
+from sqlalchemy import Boolean, Integer, String, DateTime
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    google_sub: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    picture: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class Link(Base):

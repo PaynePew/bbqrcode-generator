@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .auth_router import auth_router
 from .link_state import LinkAlreadyDeletedError, LinkNotFoundError
 from .router import router, redirect_router
 from .rate_limiter.middleware import RateLimitMiddleware
@@ -97,11 +98,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(RateLimitMiddleware)
+# Credentialed CORS (cookies must flow) forbids wildcard methods/headers — they
+# must be enumerated (ADR 0009). Same-origin prod needs no CORS; this serves the
+# dev Vite origin only.
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://localhost:\d+",
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -115,5 +120,6 @@ async def _link_already_deleted(_: Request, exc: LinkAlreadyDeletedError) -> JSO
     return JSONResponse(status_code=410, content={"detail": "Link is deleted"})
 
 
+app.include_router(auth_router)
 app.include_router(router)
 app.include_router(redirect_router)
