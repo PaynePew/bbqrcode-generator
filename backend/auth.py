@@ -14,8 +14,8 @@ from sqlalchemy.orm import Session
 
 from . import session as session_module
 from . import user_repository
+from .database import get_db
 from .models import User
-from .router import get_db
 
 
 def get_current_user(

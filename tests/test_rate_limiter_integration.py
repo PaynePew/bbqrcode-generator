@@ -4,10 +4,24 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.auth import get_current_user
 from backend.main import _maybe_warn_multi_worker, app
 from backend.router import get_db
 
+from tests.conftest import make_user
+
 _counter = itertools.count(1)
+
+
+def _override_auth(db_session):
+    """Satisfy login-to-create (ADR 0009) for rate-limiter tests.
+
+    These tests target the IP-keyed limiter (unchanged by this slice), not auth,
+    so the current user is stubbed to a seeded User. Call after setting the
+    get_db override; both are removed by the test's dependency_overrides.clear().
+    """
+    user = make_user(db_session)
+    app.dependency_overrides[get_current_user] = lambda: user
 
 
 def _create(client, *, ip="1.2.3.4"):
@@ -35,6 +49,7 @@ def rl_client(db_session, rate_limiter_enabled):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    _override_auth(db_session)
     RateLimitMiddleware.reset_for_tests()
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
@@ -85,6 +100,7 @@ def test_clock_advance_unlocks_one_more_request(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    _override_auth(db_session)
     with TestClient(app, raise_server_exceptions=True) as c:
         for _ in range(3):
             assert _create(c).status_code == 200
@@ -104,6 +120,7 @@ def test_kill_switch_passthrough_leaves_no_headers(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    _override_auth(db_session)
     with TestClient(app) as c:
         resp = _create(c)
     app.dependency_overrides.clear()
@@ -131,6 +148,7 @@ def test_fail_open_when_limiter_raises(db_session, monkeypatch):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    _override_auth(db_session)
     with TestClient(app, raise_server_exceptions=False) as c:
         resp = _create(c)
     app.dependency_overrides.clear()
@@ -161,6 +179,7 @@ def _dual_window_client(db_session, monkeypatch, *, hourly, daily, clock_list):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    _override_auth(db_session)
     return TestClient(app, raise_server_exceptions=True)
 
 

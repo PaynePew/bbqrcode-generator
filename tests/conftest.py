@@ -10,6 +10,7 @@ Pure-logic tests (no db_session / client fixture) touch no DB and stay instant.
 import os
 import subprocess
 import sys
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,9 @@ os.environ.setdefault("SECRET", "test-secret-value")
 os.environ.setdefault("BASE_URL", "http://testserver")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
+from backend.auth import get_current_user  # noqa: E402
 from backend.main import app  # noqa: E402
+from backend.models import User  # noqa: E402
 from backend.router import get_db  # noqa: E402
 
 
@@ -98,6 +101,61 @@ def client(db_session):
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Authenticated test helpers (ADR 0009: login-to-create, owner stamping)
+# ---------------------------------------------------------------------------
+
+_user_seq = 0
+
+
+def make_user(db_session, *, email: str | None = None, is_demo: bool = False) -> User:
+    """Persist and return a User. Committed so a Link FK to users.id resolves.
+
+    The commit lands inside the test's savepoint-wrapped session, so it is
+    visible for the FK check yet still rolled back at teardown.
+    """
+    global _user_seq
+    _user_seq += 1
+    now = datetime(2026, 6, 3, 12, 0, 0)
+    user = User(
+        google_sub=f"sub-test-{_user_seq}",
+        email=email or f"user{_user_seq}@example.com",
+        name=f"Test User {_user_seq}",
+        picture=None,
+        created_at=now,
+        last_login_at=now,
+        is_demo=is_demo,
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def owner(db_session) -> User:
+    """A persisted User who owns Links created through the auth_client fixture."""
+    return make_user(db_session)
+
+
+@pytest.fixture
+def auth_client(db_session, owner):
+    """TestClient authenticated as the ``owner`` fixture.
+
+    Overrides ``get_current_user`` so router endpoints see a logged-in User
+    without exercising the full Google flow (covered in test_auth_router.py).
+    Request the ``owner`` fixture alongside this one to assert on the authed User.
+    """
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: owner
     with TestClient(app, raise_server_exceptions=True) as c:
         yield c
     app.dependency_overrides.clear()

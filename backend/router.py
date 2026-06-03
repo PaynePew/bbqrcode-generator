@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from . import analytics
 from . import link_repository
 from . import scan_repository
-from .database import SessionLocal
+from .auth import get_current_user
+from .database import get_db
 from .link_state import LinkState, derive_state
-from .models import Link
+from .models import Link, User
 from .token_generator import TokenCollisionError
 from .url_validator import validate_and_normalize, InvalidURLError
 from .qr_generator import generate_qr_png
@@ -21,13 +22,9 @@ from .rate_limiter.ip_extraction import extract_client_ip
 router = APIRouter(prefix="/api")
 redirect_router = APIRouter()
 
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# get_db now lives in backend.database (shared with the auth layer to avoid a
+# router<->auth import cycle); it is imported above so existing
+# `from backend.router import get_db` call sites keep working.
 
 
 def _config():
@@ -72,7 +69,14 @@ class CreateRequest(BaseModel):
 
 
 @router.post("/qr/create")
-def create_qr(body: CreateRequest, db: Session = Depends(get_db)):
+def create_qr(
+    body: CreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Login-to-create (ADR 0009): get_current_user raises 401 when there is no
+    # valid session, so an unauthenticated create never reaches here. The created
+    # Link is stamped with the caller as owner.
     try:
         normalized_url = validate_and_normalize(body.url)
     except InvalidURLError as e:
@@ -87,6 +91,7 @@ def create_qr(body: CreateRequest, db: Session = Depends(get_db)):
             db,
             normalized_url=normalized_url,
             secret=cfg["secret"],
+            owner_id=current_user.id,
             expires_at=expires_at,
             now=now,
         )

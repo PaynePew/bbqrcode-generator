@@ -20,6 +20,7 @@ def create_link(
     *,
     normalized_url: str,
     secret: str,
+    owner_id: int,
     expires_at: Optional[datetime],
     now: datetime,
 ) -> Link:
@@ -31,6 +32,7 @@ def create_link(
             link = Link(
                 token=token,
                 original_url=normalized_url,
+                owner_id=owner_id,
                 created_at=now,
                 updated_at=now,
                 expires_at=expires_at,

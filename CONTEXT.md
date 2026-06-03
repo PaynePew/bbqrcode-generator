@@ -56,7 +56,13 @@ When auth is introduced, Link History is expected to migrate into a server-side 
 
 A **User** (one row in the `users` table) is an authenticated account, introduced in Phase 1 (ADR 0009). Identity is keyed by **`google_sub`** — Google's stable, unique subject id — not by email (which can change). A User carries `email`, `name`, `picture`, `created_at`, `last_login_at`, and an **`is_demo`** flag marking the single shared read-only demo account.
 
-A User is created or refreshed by a Google sign-in: the backend verifies Google's ID token once, then issues its own session (it does not reuse Google's token). Owning Links and the migration of Link History to a server-side per-user concept are later slices; this term names the account itself.
+A User is created or refreshed by a Google sign-in: the backend verifies Google's ID token once, then issues its own session (it does not reuse Google's token). A User **owns** the Links they create (see Ownership); migrating Link History to a server-side per-user concept is a later slice.
+
+## Ownership
+
+Every Link minted after Phase 1 is **owned**: the `links.owner_id` column references the creating `User` (ADR 0009). Creating a Link **requires a logged-in User** — an unauthenticated create is rejected (401) — and the creator is stamped as `owner_id` at mint time.
+
+`owner_id` is **nullable**: legacy pre-auth Links predate accounts, so they stay ownerless (`owner_id IS NULL`). Ownerless Links still redirect when scanned, but never surface in any dashboard ("start empty" — there is no backfill). Owner-scoped listing and owner-only authorization (non-owner → 404) are defined by ADR 0009 and land in their own slices.
 
 ## Session
 
