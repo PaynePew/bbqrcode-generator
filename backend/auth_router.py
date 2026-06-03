@@ -42,7 +42,11 @@ def _user_response(user: User) -> dict:
     }
 
 
-def _set_session_cookie(response: Response, user_id: int, config: session_module.SessionConfig) -> None:
+def _set_session_cookie(
+    response: Response,
+    user_id: int,
+    config: session_module.SessionConfig,
+) -> None:
     response.set_cookie(
         key=session_module.COOKIE_NAME,
         value=session_module.issue_session(user_id, config),

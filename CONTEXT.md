@@ -52,6 +52,16 @@ Link History supports a soft/hard removal distinction (a `dismissed` flag separa
 
 When auth is introduced, Link History is expected to migrate into a server-side per-user concept; the term will outlive its localStorage implementation.
 
+## User
+
+A **User** (one row in the `users` table) is an authenticated account, introduced in Phase 1 (ADR 0009). Identity is keyed by **`google_sub`** — Google's stable, unique subject id — not by email (which can change). A User carries `email`, `name`, `picture`, `created_at`, `last_login_at`, and an **`is_demo`** flag marking the single shared read-only demo account.
+
+A User is created or refreshed by a Google sign-in: the backend verifies Google's ID token once, then issues its own session (it does not reuse Google's token). Owning Links and the migration of Link History to a server-side per-user concept are later slices; this term names the account itself.
+
+## Session
+
+A **Session** is the app's own proof of a signed-in User, carried in a signed, `httpOnly` + `SameSite=Lax` cookie (`Secure` in production). It encodes only the User id and is verified on each request; a tampered, expired, or dangling cookie is treated as no session at all (401 on owner-only endpoints). Per ADR 0009 the app issues this session after verifying Google's ID token — Google's token is never the session.
+
 ## Scan
 
 A **Scan** is a record of a single redirect attempt on a known token. Scans are logged for all known tokens (302 and 410 outcomes). Unknown tokens (404) do not produce a Scan.
