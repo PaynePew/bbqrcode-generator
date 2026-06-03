@@ -1,55 +1,82 @@
-# Coding Standards (harness review)
+# Coding Standards (template)
 
-The review agent loads this file (substituted into the review prompt as `{{CODING_STANDARDS_BLOCK}}`) and enforces these standards during code review. Implementation agents are *not* required to read it — keeping it review-only saves implementer tokens and gives the review phase a clear job.
+**Setup:** copy this template to `.harness/CODING_STANDARDS.md` (the real file is gitignored). The review agent loads the real file into the review prompt as `{{CODING_STANDARDS_BLOCK}}`.
 
-**Setup:** copy this template to `.harness/CODING_STANDARDS.md` and edit. The real file is gitignored — each project keeps its own.
+**Audiences (progressive disclosure — read only what your role needs):**
+- **Implementer + Reviewer** read the **Core rules** and follow them while writing / refactoring.
+- **Reviewer** additionally enforces **Binding by reference** (the full `CONTEXT.md` + ADR set) and runs the **Verification cheatsheet**.
 
-> The sections below are placeholders. Keep what's relevant for your stack, delete what isn't, add domain-specific rules. The review agent treats whatever you put here as ground truth.
+If the implement step is wired to read this file (via `AGENTS.md`), the implementer should read the **Core rules** and consult **only** the ADR(s) / `CONTEXT.md` entries relevant to the files it is touching — **not** the whole ADR set (that's the reviewer's job and would bloat implementer context).
 
-## Style
+> **Design principle (keeps the file from rotting).** Put only **durable engineering principles** in Core. Do NOT copy architecture/domain facts ("the cache is Redis", "X is a frontend-only state", "endpoint Y is owner-only") here — bind them *by reference* to `CONTEXT.md` + Accepted ADRs. Copied facts must be mirrored on every architectural change and rot one feature later; referenced facts never go stale. Keep the body generic; let `CONTEXT.md` + `docs/adr/` carry everything that changes per feature/phase.
 
-<!-- Add language-specific rules per stack. Examples below — replace with your own. -->
+Treat each rule as ground truth: refactor within turn budget, or flag in "Concerns".
 
-### TypeScript / React (example — delete if not applicable)
+---
 
-- Prefer **named exports** over default exports.
-- No `any`. If unavoidable, comment why on the same line.
-- Function components only. Hooks at top level.
-- File naming: `PascalCase.tsx` for components, `camelCase.ts` for utilities.
+# Core rules (implementer + reviewer)
 
-### Python (example — delete if not applicable)
+## Style — Python (backend/)
 
-- `snake_case` for functions and variables, `PascalCase` for classes.
-- Type hints on every public function.
-- Prefer `pathlib.Path` over `os.path`.
+- `snake_case` for functions, variables, modules. `PascalCase` for classes / Pydantic models / SQLAlchemy models.
+- **Type hints on every public function**, including `async def`. Prefer `X | None` and built-in generics (`list[int]`, `dict[str, X]`). Don't introduce new `Optional[X]` / `typing.List`.
+- `from __future__ import annotations` at the top of new modules.
+- Use dataclasses / Pydantic models — not raw dicts — for structured data crossing **internal** module boundaries. (Shaping a `dict` at the router edge for an HTTP response body is fine.)
+- Names read like the domain glossary (`CONTEXT.md`) — never `do_create`, `handle_op`, `process`.
 
-<!-- Add Go / Rust / Java / etc. as needed. -->
+## Style — TypeScript / React (frontend/)
 
-## Commits
+- Prefer **named exports** over default exports. No `any` — if unavoidable, comment why on the same line.
+- Function components only; hooks at top level. Reach for `useCallback` / `useMemo` only for a measurable referential-identity reason.
+- File naming: `PascalCase.tsx` for components, `camelCase.ts` for utilities and hooks. Tests live next to source as `<module>.test.ts(x)` — no parallel `__tests__/` tree.
+- Keep Tailwind class lists short; if `cn(...)` needs > 6 conditional classes, extract a sub-component.
+- Immutable updates only — spread or rebuild; never mutate state or props in place.
 
-- Conventional Commits: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`, `ci`.
-- Subject line ≤ 72 chars, imperative mood (`add X`, not `added X`).
-- Body explains **why**, not what (the diff already shows what).
-- One logical change per commit.
+## Architecture — durable shape
+
+- **Backend layering:** HTTP (router, framework, error mapping) → domain (pure logic, raises typed domain errors, **never imports a web framework**) → persistence (repositories own the queries; no business decisions inside a repository). A web-framework import inside a domain module is a grep-enforceable review block.
+- **Frontend:** page components stay thin; push logic into hooks / `lib`. Go through a module's public interface rather than reaching past it. *Which* module owns *which* contract is defined by the code and `CONTEXT.md`, not enumerated here.
+- Introducing new module-level mutable state, or a new external dependency / infrastructure (cache, queue, object store, third-party API) that changes the runtime or deployment shape, needs an ADR.
 
 ## Tests
 
-- Every new public function gets at least one test.
-- Test names describe behavior, not implementation: `'rejects 4xx with normalized ApiError'` ✅, `'test1'` ❌.
-- <!-- List your project's test framework conventions: file naming, fixture style, mocking rules, etc. -->
+- A good test asserts **external behavior**, not implementation details: assert outputs, persisted state, and error / authorization outcomes — never private internals.
+- Every new public function gets at least one test. Test names describe behavior: `'rejects 4xx with a normalized ApiError'` ✅, `'test1'` ❌.
+- **Backend:** pytest; fixtures in `tests/conftest.py`. **Frontend:** Vitest + MSW for HTTP — no global `fetch` mocking.
+- Run the **full** suite before claiming pass. If the environment is broken, report **BLOCKED** — don't summarise expected results.
+- Test-infrastructure details (engines, containers, harness wiring) live in the test setup itself, not here.
 
-## Architecture
+## Commits
 
-- Single Responsibility per module. If a file does two things, split it.
-- <!-- Add project-specific layering rules: which directories own what, where logic goes vs glue, naming of layers, etc. -->
-- Domain language must match the project's CONTEXT/glossary doc. Don't introduce a new term without updating that doc in the same branch.
+- Conventional Commits: `feat | fix | refactor | test | docs | chore | perf | ci`. Subject ≤ 72 chars, imperative; scope in parens when meaningful.
+- Body explains **why**, not what. When fixing a behavioural bug, name the surprising mechanism in one sentence.
+- One logical change per commit; refactors separate from features.
+- Reference the issue by its **tracker ID** in the body (use whatever tracker the project runs — e.g. bd: `Refs <bead-id>`; GitHub: `Closes #N`).
 
 ## What NOT to do
 
-- No silent error swallowing. At minimum: log + rethrow. Better: handle it deliberately at a known boundary.
-- No hardcoded secrets — env vars, validated at startup.
-- No mutation of function arguments. Spread or build new.
-- No nested ternaries. Use `if/else` or extract a helper.
-- No `as any` / `// @ts-ignore` / `# type: ignore` (or language-equivalent) without an inline comment explaining why.
-- No `console.log` / `print()` debugging statements in committed code.
-- <!-- Add project-specific anti-patterns: deprecated APIs, removed dependencies, banned helpers, etc. -->
+- No `console.log` / `print()` debugging in committed code — use the project's logger.
+- No `as any` / `// @ts-ignore` / `# type: ignore` (or language-equivalent) without a same-line comment explaining why.
+- No hardcoded secrets / hostnames / ports — env vars, validated at startup.
+- No silent error swallowing. At minimum log + rethrow; better, handle at a known boundary.
+- No backwards-compat shims for unreleased code paths — just change the code.
+- No mutation of function arguments. No nested ternaries (use `if/else` or extract a helper).
+- No new term, state, endpoint, or behavior that contradicts `CONTEXT.md` or an Accepted ADR — see **Binding by reference**.
+
+---
+
+# Reviewer-additional — Binding by reference
+
+> **Implementers:** consult only the ADR(s) / `CONTEXT.md` entries that touch the files you're changing. **Reviewers:** read these in full, every review.
+
+- **`CONTEXT.md`** — the domain glossary. Using a defined term to mean something else, or introducing a new term / state / concept without updating `CONTEXT.md` in the same branch, is a review block.
+- **`docs/adr/*.md` with `Status: Accepted`** — each ADR's **Decision** and **Consequences** are binding rules. A superseding ADR wins (an Accepted ADR that says "supersedes NNNN" voids NNNN). Check against the *currently-accepted* set, never a snapshot.
+- A change that violates an Accepted ADR — or that should have an ADR (hard-to-reverse, surprising, genuine-trade-off) but ships without one — is a review block.
+
+This single section replaces every "per ADR 000X …" rule you would otherwise duplicate above.
+
+---
+
+## Verification cheatsheet (reviewer)
+
+Before marking COMPLETE, run and cite the exit code of the project's full test + typecheck commands (e.g. `pytest tests/`, `npm test --prefix frontend`, `npm run typecheck --prefix frontend`). Only the full run is a valid "tests pass" claim; a broken environment is **BLOCKED**, not a guess.
