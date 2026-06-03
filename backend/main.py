@@ -70,14 +70,21 @@ def _maybe_warn_multi_worker() -> None:
         )
 
 
+def _validate_window_pair(hourly_var: str, hourly_default: str, daily_var: str, daily_default: str):
+    """Validate one hourly/daily limiter pair: positive ints with daily >= hourly."""
+    hourly = _parse_positive_int(os.environ.get(hourly_var, hourly_default), hourly_var)
+    daily = _parse_positive_int(os.environ.get(daily_var, daily_default), daily_var)
+    if daily < hourly:
+        raise RuntimeError(f"{daily_var} ({daily}) must be >= {hourly_var} ({hourly})")
+
+
 def _validate_rate_limit_env():
     _parse_bool(os.environ.get("RATE_LIMIT_ENABLED", "true"), "RATE_LIMIT_ENABLED")
-    hourly = _parse_positive_int(os.environ.get("RATE_LIMIT_HOURLY", "30"), "RATE_LIMIT_HOURLY")
-    daily = _parse_positive_int(os.environ.get("RATE_LIMIT_DAILY", "200"), "RATE_LIMIT_DAILY")
-    if daily < hourly:
-        raise RuntimeError(
-            f"RATE_LIMIT_DAILY ({daily}) must be >= RATE_LIMIT_HOURLY ({hourly})"
-        )
+    # Per-user create limiter.
+    _validate_window_pair("RATE_LIMIT_HOURLY", "30", "RATE_LIMIT_DAILY", "200")
+    # Per-IP auth-endpoint limiter (account-farming guard, ADR 0009). Same
+    # env-driven, validated-at-startup contract as the create limiter.
+    _validate_window_pair("AUTH_RATE_LIMIT_HOURLY", "10", "AUTH_RATE_LIMIT_DAILY", "40")
 
 
 def _validate_trusted_proxies_env():
