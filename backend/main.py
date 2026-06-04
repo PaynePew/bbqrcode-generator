@@ -15,8 +15,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .auth_router import auth_router
 from .errors import AppError, ErrorCode
 from .logging_config import configure_logging
-from .router import router, redirect_router
+from . import router as _router_module
+from .router import router, redirect_router, build_storage_gateway
 from .rate_limiter.middleware import RateLimitMiddleware
+from .storage import InMemoryGateway
 
 _logger = logging.getLogger(__name__)
 
@@ -107,6 +109,22 @@ async def lifespan(app: FastAPI):
     _validate_rate_limit_env()
     _validate_trusted_proxies_env()
     _maybe_warn_multi_worker()
+
+    # Env-driven gateway selection (ADR 0011): replace the module-level
+    # InMemoryGateway with S3Gateway when AWS_S3_BUCKET + AWS_REGION are set.
+    # build_storage_gateway raises RuntimeError on misconfiguration so the app
+    # refuses to start rather than silently using in-process storage in prod.
+    gateway = build_storage_gateway(dict(os.environ))
+    _router_module._storage_gateway = gateway
+    if not isinstance(gateway, InMemoryGateway):
+        _logger.info(
+            "Storage gateway: S3Gateway (bucket=%s, region=%s)",
+            os.environ.get("AWS_S3_BUCKET"),
+            os.environ.get("AWS_REGION"),
+        )
+    else:
+        _logger.info("Storage gateway: InMemoryGateway (no AWS_S3_BUCKET configured)")
+
     yield
 
 

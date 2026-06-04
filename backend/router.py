@@ -30,7 +30,7 @@ from .errors import (
 )
 from .link_state import LinkState, derive_state
 from .models import Link, User
-from .storage import InMemoryGateway, MAX_IMAGE_BYTES, StorageGateway, sniff_image_content_type, strip_png_exif
+from .storage import InMemoryGateway, S3Gateway, MAX_IMAGE_BYTES, StorageGateway, sniff_image_content_type, strip_png_exif
 from .token_generator import TokenCollisionError
 from .url_validator import validate_and_normalize, InvalidURLError
 from .qr_generator import generate_qr_png
@@ -47,8 +47,35 @@ redirect_router = APIRouter()
 # Storage gateway — injected via FastAPI dependency so tests can swap it out.
 # ---------------------------------------------------------------------------
 
-# Module-level singleton for the real app (replaced in tests via overrides).
+# Module-level singleton for the real app.
+# Initialised to InMemoryGateway (safe default for tests / dev without S3).
+# main.py lifespan calls build_storage_gateway() at startup and replaces this
+# with an S3Gateway when AWS_S3_BUCKET + AWS_REGION are present (ADR 0011).
 _storage_gateway: StorageGateway = InMemoryGateway()
+
+
+def build_storage_gateway(env: dict[str, str | None]) -> StorageGateway:
+    """Select and return the appropriate StorageGateway from the environment.
+
+    Rules (ADR 0011):
+    - AWS_S3_BUCKET absent → InMemoryGateway (dev / test mode).
+    - AWS_S3_BUCKET present → S3Gateway; AWS_REGION is then required.
+    - AWS_ENDPOINT_URL (optional) is forwarded to S3Gateway for MinIO/LocalStack.
+
+    Raises RuntimeError when configuration is incomplete (e.g. bucket without region).
+    """
+    bucket = env.get("AWS_S3_BUCKET", "").strip()
+    if not bucket:
+        return InMemoryGateway()
+
+    region = env.get("AWS_REGION", "").strip()
+    if not region:
+        raise RuntimeError(
+            "AWS_REGION must be set when AWS_S3_BUCKET is configured (ADR 0011)"
+        )
+
+    endpoint_url: str | None = env.get("AWS_ENDPOINT_URL", "").strip() or None
+    return S3Gateway(bucket=bucket, region=region, endpoint_url=endpoint_url)
 
 
 def _get_storage() -> StorageGateway:

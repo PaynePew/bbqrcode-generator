@@ -276,3 +276,95 @@ class TestEnvVarRequirements:
         finally:
             if base_url is not None:
                 os.environ["BASE_URL"] = base_url
+
+
+class TestStorageGatewaySelection:
+    """Gateway is env-driven at startup: InMemoryGateway when AWS_S3_BUCKET absent,
+    S3Gateway when AWS_S3_BUCKET + AWS_REGION are set (ADR 0011)."""
+
+    def test_build_storage_gateway_returns_in_memory_when_no_bucket(self):
+        from backend.router import build_storage_gateway
+        from backend.storage import InMemoryGateway
+
+        env = {"SECRET": "x", "BASE_URL": "http://example.com"}
+        gw = build_storage_gateway(env)
+        assert isinstance(gw, InMemoryGateway)
+
+    def test_build_storage_gateway_returns_s3_when_bucket_and_region_set(self):
+        from backend.router import build_storage_gateway
+        from backend.storage import S3Gateway
+
+        env = {
+            "SECRET": "x",
+            "BASE_URL": "http://example.com",
+            "AWS_S3_BUCKET": "my-bucket",
+            "AWS_REGION": "us-east-1",
+        }
+        gw = build_storage_gateway(env)
+        assert isinstance(gw, S3Gateway)
+
+    def test_build_storage_gateway_passes_endpoint_url_when_set(self):
+        from backend.router import build_storage_gateway
+        from backend.storage import S3Gateway
+
+        env = {
+            "SECRET": "x",
+            "BASE_URL": "http://example.com",
+            "AWS_S3_BUCKET": "my-bucket",
+            "AWS_REGION": "us-east-1",
+            "AWS_ENDPOINT_URL": "http://localhost:9000",
+        }
+        gw = build_storage_gateway(env)
+        assert isinstance(gw, S3Gateway)
+        # The endpoint URL must be reflected in url_for output
+        url = gw.url_for("qr/tok/composite_abc.png")
+        assert "localhost:9000" in url
+
+    def test_build_storage_gateway_raises_when_bucket_set_without_region(self):
+        from backend.router import build_storage_gateway
+
+        env = {
+            "SECRET": "x",
+            "BASE_URL": "http://example.com",
+            "AWS_S3_BUCKET": "my-bucket",
+            # AWS_REGION intentionally absent
+        }
+        with pytest.raises(RuntimeError, match="AWS_REGION"):
+            build_storage_gateway(env)
+
+    def test_lifespan_wires_s3gateway_when_env_present(self):
+        """App startup must replace _storage_gateway with S3Gateway when env is set."""
+        import backend.router as router_mod
+        import backend.main as main_mod
+        from backend.storage import S3Gateway
+
+        env_patch = {
+            "SECRET": "x",
+            "BASE_URL": "http://example.com",
+            "AWS_S3_BUCKET": "test-bucket",
+            "AWS_REGION": "eu-west-1",
+        }
+        original_env = {}
+        for k, v in env_patch.items():
+            original_env[k] = os.environ.get(k)
+            os.environ[k] = v
+        # Remove any accidentally-set region before test (to isolate)
+        removed_extra = {}
+        for k in ("AWS_ENDPOINT_URL",):
+            if k in os.environ:
+                removed_extra[k] = os.environ.pop(k)
+
+        try:
+            with TestClient(main_mod.app) as _:
+                # During lifespan the module-level gateway should be S3Gateway
+                assert isinstance(router_mod._storage_gateway, S3Gateway), (
+                    f"Expected S3Gateway, got {type(router_mod._storage_gateway)}"
+                )
+        finally:
+            for k, v in original_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            for k, v in removed_extra.items():
+                os.environ[k] = v
