@@ -6,13 +6,14 @@ Key decisions:
   ``X-Request-ID`` from a trusted proxy or generates a UUID4.
 - ``CorrelationIdFilter`` injects ``correlation_id`` into every log record;
   the JSON formatter picks it up as ``request_id``.
-- post-auth ``user_id`` is bound via ``bind_user_id`` (called from the auth
-  dependency or middleware after session decoding).
+- Post-auth ``user_id`` is bound via ``bind_user_id``, called by
+  ``auth.get_current_user`` after session decoding so every subsequent log
+  record in the request carries the user_id field.
 - No raw IP ever enters a log record (ADR 0013):
   - Redirect path: logs no IP at all.
-  - Abuse-relevant paths (auth endpoint): ``hash_ip`` hashes with a salted
-    HMAC-SHA256 so "one source hammering" is detectable without retaining the
-    raw address.
+  - Abuse-relevant paths (auth endpoint): ``hash_ip`` is called in
+    ``auth_router.start_session`` to log a salted HMAC-SHA256 digest so
+    "one source hammering" is detectable without retaining the raw address.
 - Log rotation with ~30-day retention is configured by ``configure_logging``.
 """
 from __future__ import annotations

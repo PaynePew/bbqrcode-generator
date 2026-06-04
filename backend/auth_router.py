@@ -8,9 +8,10 @@ session.
 """
 from __future__ import annotations
 
+import logging
 import os
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -20,8 +21,12 @@ from . import user_repository
 from .auth import get_current_user
 from .errors import AppError, ErrorCode
 from .google_identity import InvalidGoogleTokenError
+from .logging_config import hash_ip
 from .models import User
+from .rate_limiter.ip_extraction import extract_client_ip
 from .router import _now_utc, get_db
+
+_logger = logging.getLogger(__name__)
 
 auth_router = APIRouter(prefix="/api/auth")
 
@@ -65,10 +70,20 @@ class SessionRequest(BaseModel):
 @auth_router.post("/session")
 def start_session(
     body: SessionRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Verify a Google credential, upsert the User, and set the session cookie."""
+    """Verify a Google credential, upsert the User, and set the session cookie.
+
+    Abuse-relevant path: logs a hashed client IP (ADR 0013) so account-farming
+    attempts are detectable without retaining the raw address.
+    """
+    trusted_proxies = int(os.environ.get("TRUSTED_PROXIES", "0"))
+    raw_ip = extract_client_ip(request, trusted_proxies)
+    if raw_ip:
+        _logger.info("auth attempt ip_hash=%s", hash_ip(raw_ip))
+
     client_id = _google_client_id()
     try:
         identity = google_identity.verify_google_id_token(body.credential, client_id)
