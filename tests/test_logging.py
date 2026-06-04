@@ -65,6 +65,22 @@ class TestIPHashing:
 
         assert h1 != h2
 
+    def test_get_ip_salt_raises_when_secret_missing(self, monkeypatch):
+        """No hardcoded SECRET fallback — missing env var must raise KeyError (fail-fast).
+
+        A misconfigured deploy must not silently weaken the hash salt to a
+        known constant. Refs qr_code_generator-6bs.
+        """
+        import importlib
+        from backend import logging_config
+
+        monkeypatch.delenv("SECRET", raising=False)
+        monkeypatch.delenv("IP_LOG_SALT", raising=False)
+        importlib.reload(logging_config)
+
+        with pytest.raises(KeyError):
+            logging_config._get_ip_salt()
+
 
 # ---------------------------------------------------------------------------
 # Unit: JSON log formatter

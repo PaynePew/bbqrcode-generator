@@ -56,17 +56,18 @@ def get_log_user_id() -> int | None:
 # ---------------------------------------------------------------------------
 
 def _get_ip_salt() -> bytes:
-    """Return the per-deployment salt for IP hashing (from env, or a fixed fallback).
+    """Return the per-deployment salt for IP hashing.
 
-    The salt is intentionally NOT generated at runtime so log records from the
-    same deploy remain correlated. It defaults to a value derived from SECRET
-    so no extra env var is required in most deploys.
+    Reads ``IP_LOG_SALT`` when set; otherwise derives the salt from ``SECRET``
+    (which startup validation already requires). Raises ``KeyError`` if neither
+    is present so a misconfigured deploy fails fast rather than silently
+    weakening the hash salt to a known constant (ADR 0013).
     """
     explicit = os.environ.get("IP_LOG_SALT")
     if explicit:
         return explicit.encode()
-    # Fall back to the app secret — it's already required at startup.
-    secret = os.environ.get("SECRET", "dev-secret")
+    # SECRET is enforced at startup; KeyError here signals a misconfigured deploy.
+    secret = os.environ["SECRET"]
     return f"ip-log-{secret}".encode()
 
 
