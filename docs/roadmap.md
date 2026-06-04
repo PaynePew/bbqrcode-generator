@@ -11,7 +11,27 @@
 
 ---
 
-## ⏯️ Session state — RESUME HERE (last updated 2026-06-04)
+## ⏯️ Session state — RESUME HERE (last updated 2026-06-04 — Phase 6 grill PAUSED)
+
+> **⏸️ 2026-06-04 (later) — Phase 6 grill PAUSED + decision layer raised to a platform layer.**
+> The shared-VPS architecture is now owned by a **platform layer** at `live_sessions/platform`
+> (its own repo). Outcomes of the Phase-6 grill before pausing:
+> - **Co-location grilled** against scheduler's box (2 vCPU / 2 GB Lightsail, Tokyo, static IP
+>   `52.197.62.39`; Caddy 2 owns :80/:443 via GitOps). Platform context:
+>   `live_sessions/VPS-DEPLOY-CONTEXT.md`.
+> - **Locked:** Postgres = own container (A) · 1 uvicorn worker until Redis (ADR 0007) · single
+>   upstream `qrcode-app:8000` (SPA + `/api` + `/r` from one container) · shared layer = passive
+>   routing, each tenant deploys **independently** (Q2).
+> - **Q1 (ingress ownership) RESOLVED:** ingress extracted into a neutral platform-owned `edge`
+>   (**ADR 0014, in the platform repo — NOT qrcode's**). qrcode onboards as a **co-equal tenant**,
+>   not a scheduler guest.
+> - **Timing gate (Plan A):** qrcode go-live / first TLS cert waits for the platform edge
+>   extraction; all deploy artifacts build + test locally **now**, unblocked.
+> - **Seeds received** (untracked in this worktree, qrcode to review/commit via bd): `Dockerfile`,
+>   `docker-compose.prod.yml`, `.dockerignore`, `.env.prod.example`. Brief:
+>   `live_sessions/platform/docs/requests/qrcode-onboarding-handoff.md`.
+> - **Remaining qrcode work (→ bd):** SPA-wiring slice (`main.py` StaticFiles + SPA fallback +
+>   `/healthz`), local docker build validation, CD pipeline (ghcr → SSH → compose), `pg_dump`→S3 backups.
 
 **Foundation (Phases 0–2) AND Phases 3–5 are now implemented and landed on `main`.** Phases 3–5
 shipped via PR #67 (slices `ql8` error-envelope, `ai0` labels, `jn4` login tests, `hkb` server-side
