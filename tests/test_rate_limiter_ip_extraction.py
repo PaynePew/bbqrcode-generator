@@ -9,7 +9,6 @@ AC coverage:
   - Missing both (no XFF, no client) returns None
   - Whitespace around XFF values is stripped
 """
-import pytest
 from unittest.mock import MagicMock
 
 from backend.rate_limiter.ip_extraction import extract_client_ip
