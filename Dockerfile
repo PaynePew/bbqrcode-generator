@@ -9,7 +9,7 @@
 # qrcode's agent owns and tunes this file.
 
 # ---- Stage 1: build frontend -> /frontend/dist ----
-FROM node:22-alpine AS frontend
+FROM node:20-alpine AS frontend
 WORKDIR /frontend
 # Install deps first (cached until the lockfile changes).
 COPY frontend/package.json frontend/package-lock.json ./
