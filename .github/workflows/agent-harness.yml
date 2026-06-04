@@ -10,7 +10,7 @@ jobs:
     name: Pester (Windows)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Pester
         shell: pwsh
@@ -31,7 +31,7 @@ jobs:
     name: bats (Ubuntu)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install bats-core
         run: sudo apt-get install -y bats
