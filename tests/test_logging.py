@@ -233,3 +233,127 @@ class TestNoRawIPInLogs:
 
         log_output = log_capture.getvalue()
         assert "127.0.0.1" not in log_output
+
+
+# ---------------------------------------------------------------------------
+# Integration: bind_user_id wired into auth dependency (ADR 0013)
+# ---------------------------------------------------------------------------
+
+
+class TestBindUserIdWiredInAuth:
+    def test_get_current_user_binds_user_id_to_log_context(self, db_session):
+        """get_current_user must call bind_user_id so user_id appears in logs."""
+        from backend import logging_config
+        from backend.auth import get_current_user
+        from backend.models import User
+        from backend.session import COOKIE_NAME, SessionConfig, issue_session
+        from fastapi import Request
+        import datetime
+
+        # Reset context var before test
+        logging_config._user_id_var.set(None)
+
+        # Persist a real user
+        user = User(
+            google_sub="sub-log-test-1",
+            email="logtest@example.com",
+            name="Log Test",
+            picture=None,
+            created_at=datetime.datetime(2026, 1, 1),
+            last_login_at=datetime.datetime(2026, 1, 1),
+            is_demo=False,
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+
+        config = SessionConfig()
+        cookie_value = issue_session(user.id, config)
+
+        # Build a minimal Request with the session cookie
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+        }
+        request = Request(scope)
+        request._cookies = {COOKIE_NAME: cookie_value}
+
+        # Call the dependency directly
+        resolved_user = get_current_user(request=request, db=db_session)
+        assert resolved_user.id == user.id
+
+        # The context var must now carry this user_id
+        bound = logging_config.get_log_user_id()
+        assert bound == user.id, (
+            f"bind_user_id was not called: expected {user.id}, got {bound}"
+        )
+
+    def test_bind_user_id_propagates_to_json_formatter(self):
+        """bind_user_id must be reflected by JSONFormatter via the contextvar."""
+        import json as json_mod
+        from backend.logging_config import JSONFormatter, bind_user_id, _user_id_var
+
+        # Reset context
+        _user_id_var.set(None)
+        bind_user_id(999)
+
+        fmt = JSONFormatter()
+        record = logging.LogRecord(
+            name="test", level=logging.INFO, pathname="", lineno=0,
+            msg="bound check", args=(), exc_info=None,
+        )
+        data = json_mod.loads(fmt.format(record))
+        assert data.get("user_id") == 999, (
+            f"JSONFormatter did not pick up bound user_id: {data}"
+        )
+        # Reset
+        _user_id_var.set(None)
+
+
+# ---------------------------------------------------------------------------
+# Integration: hash_ip wired on auth endpoint (ADR 0013)
+# ---------------------------------------------------------------------------
+
+
+class TestHashIpWiredOnAuthEndpoint:
+    def test_auth_session_logs_hashed_ip_not_raw(self):
+        """POST /api/auth/session must log a hashed IP, not the raw address.
+
+        Verifies that the log output contains an ``ip_hash=`` field and that
+        neither '127.0.0.1' nor the TestClient peer identifier appear as
+        raw values (ADR 0013).
+        """
+        from backend.main import app
+        from backend.logging_config import hash_ip
+
+        # TestClient sets request.client.host = "testclient"; compute expected hash.
+        expected_hash = hash_ip("testclient")
+        captured_lines: list[str] = []
+
+        class _LineCapture(logging.Handler):
+            def emit(self, record: logging.LogRecord) -> None:
+                captured_lines.append(self.format(record))
+
+        handler = _LineCapture()
+        handler.setLevel(logging.DEBUG)
+        root = logging.getLogger()
+        old_handlers = root.handlers[:]
+        root.addHandler(handler)
+        try:
+            with TestClient(app, raise_server_exceptions=False) as c:
+                c.post("/api/auth/session", json={"credential": "bad"})
+        finally:
+            root.removeHandler(handler)
+            root.handlers = old_handlers
+
+        combined = "\n".join(captured_lines)
+        # Raw IP values must not appear.
+        assert "127.0.0.1" not in combined, "Raw IP must not appear in auth logs"
+        # The hashed IP must be present, confirming hash_ip is wired in.
+        assert expected_hash in combined, (
+            f"Hashed IP '{expected_hash}' not found in auth log output. "
+            f"Log lines: {captured_lines[:10]}"
+        )

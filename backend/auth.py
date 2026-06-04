@@ -16,6 +16,7 @@ from . import session as session_module
 from . import user_repository
 from .database import get_db
 from .errors import unauthenticated
+from .logging_config import bind_user_id
 from .models import User
 
 
@@ -23,7 +24,11 @@ def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
 ) -> User:
-    """Return the authenticated User, or raise 401 if there is no valid session."""
+    """Return the authenticated User, or raise 401 if there is no valid session.
+
+    Also binds the resolved user_id to the per-request log context (ADR 0013)
+    so every subsequent log record in this request carries user_id.
+    """
     config = session_module.SessionConfig()
     raw_cookie = request.cookies.get(session_module.COOKIE_NAME, "")
     user_id = session_module.read_session(raw_cookie, config)
@@ -33,4 +38,6 @@ def get_current_user(
     user = user_repository.get_user_by_id(db, user_id)
     if user is None:
         raise unauthenticated()
+
+    bind_user_id(user.id)
     return user
