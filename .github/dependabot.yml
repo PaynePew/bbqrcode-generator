@@ -1,22 +1,45 @@
 version: 2
 updates:
-  # Python backend deps
+  # Python backend deps — one grouped PR per run (avoids per-package PR floods).
   - package-ecosystem: pip
     directory: "/"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      pip:
+        patterns: ["*"]
 
-  # Frontend npm deps
+  # Frontend npm deps — grouped. React majors are held back (18 -> 19 is a
+  # deliberate migration, not an automated bump).
   - package-ecosystem: npm
     directory: "/frontend"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      npm:
+        patterns: ["*"]
+    ignore:
+      # React 19 migration is tracked separately, not auto-bumped.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # tailwind-merge v3 targets Tailwind CSS v4; held until that migration.
+      - dependency-name: "tailwind-merge"
+        update-types: ["version-update:semver-major"]
 
-  # GitHub Actions used by the workflows
+  # GitHub Actions used by the workflows — grouped.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ["*"]
