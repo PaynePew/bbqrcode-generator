@@ -1,6 +1,5 @@
 import logging
 
-import pytest
 
 from backend.rate_limiter.limiter import RateLimiter
 

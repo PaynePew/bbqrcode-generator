@@ -163,7 +163,6 @@ class TestADR0012Rulings:
         """Non-owner on owner-only resource -> 404 NOT_FOUND (owner-404 rule)."""
         from tests.conftest import make_user
         from backend.auth import get_current_user
-        import backend.router as router_module
         from backend.database import get_db
 
         # Create a link owned by user A (auth_client's owner).

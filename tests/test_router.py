@@ -257,7 +257,6 @@ class TestEnvVarRequirements:
     def test_secret_env_var_required(self):
         secret = os.environ.pop("SECRET", None)
         try:
-            import importlib
             import backend.main as m
             with pytest.raises((RuntimeError, KeyError, Exception)):
                 with TestClient(m.app) as c:
