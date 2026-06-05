@@ -108,6 +108,22 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize a stored (naive-UTC) datetime as a tz-qualified ISO string.
+
+    Stored datetimes are naive UTC (``_now_utc`` strips tzinfo); a bare
+    ``isoformat()`` emits no offset, so the frontend's ``new Date()`` parses
+    them as *local* time and renders them off by the viewer's UTC offset
+    (bead s4l). Tag as UTC so the wire value is unambiguous. ``None`` passes
+    through; an already-aware value is left untouched.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 _LABEL_MAX_LEN = 100
 
 
@@ -127,9 +143,9 @@ def _link_response(link: Link, base_url: str, state: LinkState) -> dict:
         "qr_code_url": f"{base_url}/api/qr/{link.token}/image",
         "label": link.label,
         "status": state,
-        "created_at": link.created_at.isoformat(),
-        "updated_at": link.updated_at.isoformat(),
-        "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+        "created_at": _iso_utc(link.created_at),
+        "updated_at": _iso_utc(link.updated_at),
+        "expires_at": _iso_utc(link.expires_at),
     }
 
 
@@ -318,7 +334,7 @@ async def put_customization(
         "token": token,
         "image_key": image_key,
         "logo_key": logo_key,
-        "updated_at": now.isoformat(),
+        "updated_at": _iso_utc(now),
     }
 
 
@@ -351,7 +367,7 @@ def get_customization(
         "style": json.loads(customization.style_json),
         "image_url": storage.url_for(customization.image_key),
         "logo_url": logo_url,
-        "updated_at": customization.updated_at.isoformat(),
+        "updated_at": _iso_utc(customization.updated_at),
     }
 
 
@@ -396,8 +412,8 @@ def list_links(
             "label": link.label,
             "status": derive_state(link, now),
             "scan_count": scan_counts.get(link.token, 0),
-            "created_at": link.created_at.isoformat(),
-            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "created_at": _iso_utc(link.created_at),
+            "expires_at": _iso_utc(link.expires_at),
         }
         for link in links
     ]
