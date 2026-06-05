@@ -19,10 +19,12 @@ import {
   getStyle,
   setStyle as persistSetStyle,
   DEFAULT_STYLE,
+  QR_RENDER_SIZE,
   type QRStyle,
   type DotType,
   type ECL,
 } from '@/state/styleStore'
+import { saveCustomization } from '@/api/qr'
 import { applyEclPolicy } from '@/qr/eclPolicy'
 import { useMotionPreference } from '@/lib/motionPreference'
 import { getToastOptions } from '@/lib/toastOptions'
@@ -86,8 +88,8 @@ function styleToRendererOptions(
 
   return {
     ...(data ? { data } : {}),
-    width: style.size,
-    height: style.size,
+    width: QR_RENDER_SIZE,
+    height: QR_RENDER_SIZE,
     dotsOptions: { color: style.foreground, type: dotType },
     backgroundOptions: { color: style.background },
     cornersSquareOptions: { type: cornerSquareType },
@@ -118,6 +120,7 @@ export function Generator() {
   const prefersReducedMotion = useMotionPreference()
 
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null)
+  const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoScale, setLogoScale] = useState(0.2)
   const [logoError, setLogoError] = useState<string | null>(null)
 
@@ -189,6 +192,7 @@ export function Generator() {
   function handleLogoRemove() {
     revokeLogo()
     setLogoObjectUrl(null)
+    setLogoFile(null)
     setLogoError(null)
     updateRenderer(style, null, logoScale)
   }
@@ -222,6 +226,7 @@ export function Generator() {
       const objectUrl = URL.createObjectURL(file)
       logoObjectUrlRef.current = objectUrl
       setLogoObjectUrl(objectUrl)
+      setLogoFile(file)
       updateRenderer(style, objectUrl, logoScale)
     },
     [style, logoScale],
@@ -236,7 +241,17 @@ export function Generator() {
 
   const mutation = useCreateEntry()
 
-  const onCreateSuccess = (data: { token: string; original_url: string; short_url: string }) => {
+  function isCustomized(s: QRStyle, logo: File | null): boolean {
+    return (
+      s.foreground !== DEFAULT_STYLE.foreground ||
+      s.background !== DEFAULT_STYLE.background ||
+      s.dotType !== DEFAULT_STYLE.dotType ||
+      s.ecl !== DEFAULT_STYLE.ecl ||
+      logo !== null
+    )
+  }
+
+  const onCreateSuccess = async (data: { token: string; original_url: string; short_url: string }) => {
       const qrUrl = data.short_url
       setShortUrl(qrUrl)
       setCurrentToken(data.token)
@@ -253,6 +268,27 @@ export function Generator() {
 
       if (!prefersReducedMotion) {
         confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } })
+      }
+
+      if (isCustomized(style, logoFile)) {
+        try {
+          const blob = await rendererRef.current.toBlob('png')
+          await saveCustomization({
+            token: data.token,
+            style: {
+              foreground: style.foreground,
+              background: style.background,
+              dotType: style.dotType,
+              ecl: style.ecl,
+              size: QR_RENDER_SIZE,
+            },
+            image: blob,
+            logo: logoFile ?? undefined,
+          })
+        } catch (err) {
+          if (nudgeIfDemoReadOnly(err as ApiError)) return
+          toast.error('樣式儲存失敗，QR 碼已建立但外觀可能需要重新套用。', getToastOptions('error'))
+        }
       }
   }
 
@@ -551,42 +587,6 @@ export function Generator() {
               onChange={(color) => handleStyleChange({ ...style, background: color })}
               disabled={mutation.isPending}
             />
-
-            <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium">尺寸</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min={200}
-                  max={800}
-                  step={10}
-                  value={style.size}
-                  onChange={(e) =>
-                    handleStyleChange({ ...style, size: parseInt(e.target.value, 10) })
-                  }
-                  disabled={mutation.isPending}
-                  className="flex-1 accent-primary disabled:opacity-50"
-                  aria-label="QR 碼尺寸滑桿"
-                />
-                <input
-                  type="number"
-                  min={200}
-                  max={800}
-                  step={10}
-                  value={style.size}
-                  onChange={(e) => {
-                    const v = parseInt(e.target.value, 10)
-                    if (!isNaN(v) && v >= 200 && v <= 800) {
-                      handleStyleChange({ ...style, size: v })
-                    }
-                  }}
-                  disabled={mutation.isPending}
-                  className="w-20 rounded-md border border-input px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-50"
-                  aria-label="QR 碼尺寸數值"
-                />
-                <span className="text-sm text-muted-foreground">px</span>
-              </div>
-            </div>
 
             <div className="flex flex-col gap-1">
               <label htmlFor="dot-style-select" className="text-sm font-medium">

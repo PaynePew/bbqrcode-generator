@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { LayoutDashboard, Loader2, ScanLine } from 'lucide-react'
 import { useLinkList } from '@/state/linkEntry'
 import { useAuth } from '@/state/auth'
-import type { LinkListItem } from '@/api/qr'
+import { getQrImageUrl, type LinkListItem } from '@/api/qr'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { Button } from '@/components/ui/button'
@@ -46,7 +46,7 @@ function LinkCard({ item }: { item: LinkListItem }) {
 
   return (
     <div
-      className="rounded-lg border bg-card p-4 shadow-sm flex flex-col gap-2 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all"
+      className="rounded-lg border bg-card p-4 shadow-sm flex gap-3 cursor-pointer hover:border-primary/40 hover:shadow-md transition-all"
       onClick={handleCardClick}
       role="button"
       tabIndex={0}
@@ -58,6 +58,19 @@ function LinkCard({ item }: { item: LinkListItem }) {
       }}
       aria-label={`查看 ${item.token} 的詳情`}
     >
+      {/* QR thumbnail — authoritative stored composite (bead 65g).
+          Note: LinkListItem does not carry customization updated_at, so cache-bust
+          is best-effort (no ?v= param); the browser's normal HTTP cache applies. */}
+      <img
+        src={getQrImageUrl(item.token)}
+        alt={`QR 碼：${item.token}`}
+        width={56}
+        height={56}
+        loading="lazy"
+        className="rounded border border-border bg-white object-contain flex-shrink-0 self-start"
+      />
+
+      <div className="flex flex-col gap-2 flex-1 min-w-0">
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium truncate flex-1 min-w-0" title={item.original_url}>
           {truncateUrl(item.original_url)}
@@ -79,6 +92,7 @@ function LinkCard({ item }: { item: LinkListItem }) {
           <ScanLine className="h-3 w-3" />
           {item.scan_count}
         </span>
+      </div>
       </div>
     </div>
   )

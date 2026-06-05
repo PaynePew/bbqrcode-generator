@@ -145,6 +145,18 @@ export interface SaveCustomizationResponse {
 }
 
 /**
+ * Returns a relative URL for the authoritative stored QR composite image.
+ * Works in dev (via the Vite /api proxy) and in prod (same-origin).
+ * Optionally cache-busts with the customization's updated_at timestamp.
+ * The endpoint is public — no auth/credentials needed; a plain <img src> is sufficient.
+ */
+export function getQrImageUrl(token: string, updatedAt?: string): string {
+  const base = `/api/qr/${token}/image`
+  if (!updatedAt) return base
+  return `${base}?v=${encodeURIComponent(updatedAt)}`
+}
+
+/**
  * Upload a customization recipe + rendered composite to the server (owner-only).
  * Uses multipart/form-data as required by PUT /api/qr/{token}/customization.
  */
@@ -155,10 +167,14 @@ export async function saveCustomization(args: SaveCustomizationArgs): Promise<Sa
   if (args.logo) {
     form.append('logo', args.logo, 'logo')
   }
+  // Let axios derive `multipart/form-data; boundary=…` from the FormData itself.
+  // The apiClient default is application/json; forcing 'multipart/form-data' here
+  // would omit the boundary, so the server cannot parse the parts (422). Setting
+  // the header to undefined overrides the default and lets axios compute it.
   const { data } = await apiClient.put<SaveCustomizationResponse>(
     `/api/qr/${args.token}/customization`,
     form,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+    { headers: { 'Content-Type': undefined } },
   )
   return data
 }

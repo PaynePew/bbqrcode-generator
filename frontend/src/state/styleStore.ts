@@ -3,10 +3,15 @@ import type { ECL } from '@/qr/eclPolicy'
 export type DotType = 'square' | 'dots' | 'rounded' | 'extra-rounded' | 'classy'
 export type { ECL }
 
+/**
+ * The fixed internal render resolution (pixels).
+ * Resolution is a system concern — not a user knob (ADR 0011).
+ */
+export const QR_RENDER_SIZE = 320
+
 export interface QRStyle {
   foreground: string
   background: string
-  size: number
   dotType: DotType
   ecl: ECL
 }
@@ -14,7 +19,6 @@ export interface QRStyle {
 export const DEFAULT_STYLE: QRStyle = {
   foreground: '#000000',
   background: '#ffffff',
-  size: 320,
   dotType: 'square',
   ecl: 'M',
 }
@@ -36,13 +40,17 @@ function parse(raw: string | null): QRStyle | null {
     if (
       typeof obj.foreground === 'string' &&
       typeof obj.background === 'string' &&
-      typeof obj.size === 'number' &&
       typeof obj.dotType === 'string'
     ) {
       const ecl: ECL = typeof obj.ecl === 'string' && VALID_ECLS.includes(obj.ecl as ECL)
         ? (obj.ecl as ECL)
         : DEFAULT_STYLE.ecl
-      return { ...(obj as unknown as QRStyle), ecl }
+      return {
+        foreground: obj.foreground,
+        background: obj.background,
+        dotType: obj.dotType as DotType,
+        ecl,
+      }
     }
   } catch {
     // fall through

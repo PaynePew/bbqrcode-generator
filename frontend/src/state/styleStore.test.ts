@@ -22,8 +22,9 @@ describe('styleStore', () => {
     expect(getDefault(storage)).toEqual(DEFAULT_STYLE)
   })
 
+  // size is no longer a user-editable field (bead 40o / ADR 0011).
   it('setDefault / getDefault round-trip', () => {
-    const style = { foreground: '#ff0000', background: '#00ff00', size: 400, dotType: 'dots' as const, ecl: 'Q' as const }
+    const style = { foreground: '#ff0000', background: '#00ff00', dotType: 'dots' as const, ecl: 'Q' as const }
     setDefault(style, storage)
     expect(getDefault(storage)).toEqual(style)
   })
@@ -39,7 +40,7 @@ describe('styleStore', () => {
   })
 
   it('setStyle / getStyle per-token round-trip', () => {
-    const style = { foreground: '#ff0000', background: '#0000ff', size: 500, dotType: 'rounded' as const, ecl: 'H' as const }
+    const style = { foreground: '#ff0000', background: '#0000ff', dotType: 'rounded' as const, ecl: 'H' as const }
     setStyle('tok1', style, storage)
     expect(getStyle('tok1', storage)).toEqual(style)
   })
@@ -77,13 +78,24 @@ describe('styleStore', () => {
     expect(getDefault(storage)).toEqual(DEFAULT_STYLE)
   })
 
+  // Backward-compatibility: old stored data may still include a `size` field;
+  // parse ignores it and the returned style matches DEFAULT_STYLE shape (no size).
   it('stored style without ecl field falls back to default ECL (M)', () => {
-    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', size: 320, dotType: 'square' }))
+    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', dotType: 'square' }))
     expect(getDefault(storage).ecl).toBe('M')
   })
 
   it('stored style with invalid ecl value falls back to default ECL (M)', () => {
-    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', size: 320, dotType: 'square', ecl: 'X' }))
+    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', dotType: 'square', ecl: 'X' }))
     expect(getDefault(storage).ecl).toBe('M')
+  })
+
+  it('stored style with legacy size field is parsed correctly (backward compat)', () => {
+    // Old data stored with size; parse should still succeed and drop the size field.
+    storage.setItem('qr-style:default', JSON.stringify({ foreground: '#ff0000', background: '#ffffff', size: 320, dotType: 'square', ecl: 'M' }))
+    const result = getDefault(storage)
+    expect(result.foreground).toBe('#ff0000')
+    expect(result.dotType).toBe('square')
+    expect((result as unknown as Record<string, unknown>).size).toBeUndefined()
   })
 })
