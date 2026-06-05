@@ -11,6 +11,13 @@
 # ---- Stage 1: build frontend -> /frontend/dist ----
 FROM node:20-alpine AS frontend
 WORKDIR /frontend
+# Google Identity Services One Tap client id. Vite INLINES import.meta.env.VITE_*
+# at BUILD time, so it must be present here (a runtime env on the box is too late).
+# CD passes it as --build-arg from repo variable VITE_GOOGLE_CLIENT_ID; an empty
+# value builds a working app where Google sign-in stays "unconfigured" (no One Tap)
+# while "Try as guest" still works. Changing the value busts the npm-build cache.
+ARG VITE_GOOGLE_CLIENT_ID=""
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 # Install deps first (cached until the lockfile changes).
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
