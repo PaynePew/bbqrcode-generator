@@ -46,6 +46,22 @@ services:
     networks:
       - default
 
+  # Idempotent demo-account seed (ADR 0009). backend/demo_seed.py no-ops once the
+  # demo account already owns Links, so running it on EVERY deploy never duplicates
+  # data. Without it, "Try as guest" -> 503 "Demo account is not available". Runs
+  # after migrate (tables must exist); qrcode-app does NOT depend on it.
+  qrcode-seed:
+    build: .
+    image: ghcr.io/paynepew/qr_code_generator:${IMAGE_TAG:-latest}
+    command: ["python", "-m", "backend.demo_seed"]   # reads DATABASE_URL + SECRET from .env.prod
+    env_file: .env.prod
+    depends_on:
+      qrcode-migrate:
+        condition: service_completed_successfully
+    restart: "no"
+    networks:
+      - default
+
   qrcode-db:
     image: postgres:16
     restart: unless-stopped
