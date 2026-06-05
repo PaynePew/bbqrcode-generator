@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from .models import Scan
+from .timeutil import iso_utc
 
 DEFAULT_RECENT_LIMIT = 50
 
@@ -36,7 +37,7 @@ def _scans_by_day(scans: list[Scan]) -> list[dict]:
 def _recent_scans(scans: list[Scan], limit: int) -> list[dict]:
     return [
         {
-            "scanned_at": scan.scanned_at.isoformat(),
+            "scanned_at": iso_utc(scan.scanned_at),
             "status_code": scan.status_code,
             "ip_address": scan.ip_address,
             "user_agent": scan.user_agent,

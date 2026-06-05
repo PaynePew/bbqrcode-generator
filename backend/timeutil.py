@@ -1,0 +1,29 @@
+"""Shared UTC datetime helpers.
+
+The app stores datetimes as naive UTC (``now_utc`` strips tzinfo). Serializing
+them needs an explicit UTC marker: a bare ``isoformat()`` on a naive value emits
+no offset, so the frontend's ``new Date()`` parses it as *local* time and
+renders it off by the viewer's UTC offset (beads s4l, 8s8). This is the single
+home for that convention so router and analytics serialize identically.
+"""
+
+from datetime import datetime, timezone
+from typing import Optional
+
+
+def now_utc() -> datetime:
+    """Current time as a naive-UTC datetime (the app's storage convention)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def iso_utc(dt: Optional[datetime]) -> Optional[str]:
+    """Serialize a stored (naive-UTC) datetime as a tz-qualified ISO string.
+
+    Tags a naive value as UTC; ``None`` passes through; an already-aware value
+    is left untouched (idempotent).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()

@@ -166,7 +166,7 @@ def _main() -> None:
     if not secret:
         raise RuntimeError("SECRET environment variable must be set")
 
-    # Naive UTC, matching how the app stores timestamps (see router._now_utc).
+    # Naive UTC, matching how the app stores timestamps (see timeutil.now_utc).
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     db = SessionLocal()
     try:
