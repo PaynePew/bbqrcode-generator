@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useForm } from '@tanstack/react-form'
 import { toast } from 'sonner'
-import { ArrowLeft, Loader2, Trash2, Pencil, Save } from 'lucide-react'
+import { ArrowLeft, Loader2, Trash2, Pencil, Download } from 'lucide-react'
 import {
   LineChart,
   Line,
@@ -15,13 +15,11 @@ import {
   Legend,
 } from 'recharts'
 import { format, subDays, parseISO } from 'date-fns'
-import { getAnalytics, type AnalyticsResponse } from '@/api/qr'
+import { getAnalytics, getQrImageUrl, type AnalyticsResponse } from '@/api/qr'
 import { analyticsKey } from '@/api/queryKeys'
 import type { ApiError } from '@/api/client'
 import { urlSchema } from '@/schemas/url'
 import { cn } from '@/lib/utils'
-import { DEFAULT_STYLE, type QRStyle } from '@/state/styleStore'
-import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
 import { useLinkEntry, type DerivedEntry } from '@/state/linkEntry'
 import { useCustomization } from '@/state/useCustomization'
 import { getToastOptions } from '@/lib/toastOptions'
@@ -503,19 +501,9 @@ function EditExpiresAtForm({
   )
 }
 
-/** Map an upload error code to a user-readable message (ADR 0012). */
-function uploadErrorMessage(err: ApiError | null): string | null {
-  if (!err) return null
-  if (err.code === 'INVALID_IMAGE') return '上傳的檔案不是有效的圖片格式（PNG、JPEG、GIF、WebP）。'
-  if (err.code === 'FILE_TOO_LARGE') return '圖片檔案太大，請選擇較小的圖片。'
-  return '儲存自訂樣式失敗，請稍後再試。'
-}
-
 export function LinkDetail() {
   const { token } = useParams<{ token: string }>()
   const navigate = useNavigate()
-  const qrContainerRef = useRef<HTMLDivElement>(null)
-  const rendererRef = useRef<QRRenderer | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isEditingExpiry, setIsEditingExpiry] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -524,62 +512,6 @@ export function LinkDetail() {
   const customizationHook = useCustomization(token ?? '')
 
   const shortUrl = entry.link?.short_url ?? null
-
-  // Derive the active style: server-persisted customization wins; fall back to
-  // DEFAULT_STYLE for links that have never been customized (ADR 0011).
-  const activeStyle: QRStyle = customizationHook.customization
-    ? {
-        foreground: customizationHook.customization.style.foreground,
-        background: customizationHook.customization.style.background,
-        size: customizationHook.customization.style.size,
-        dotType: customizationHook.customization.style.dotType as QRStyle['dotType'],
-        ecl: customizationHook.customization.style.ecl as QRStyle['ecl'],
-      }
-    : { ...DEFAULT_STYLE }
-
-  // Store activeStyle in a ref so the save handler always reads the latest
-  // style without needing to be in its dependency array.
-  const activeStyleRef = useRef<QRStyle>(activeStyle)
-  activeStyleRef.current = activeStyle
-
-  useEffect(() => {
-    if (!entry.link || !qrContainerRef.current) return
-
-    rendererRef.current?.destroy()
-    const renderer = createRenderer({
-      data: entry.link.short_url,
-      width: Math.min(activeStyle.size, 240),
-      height: Math.min(activeStyle.size, 240),
-      dotsOptions: {
-        color: activeStyle.foreground,
-        type: activeStyle.dotType as import('qr-code-styling').DotType,
-      },
-      backgroundOptions: { color: activeStyle.background },
-    })
-    renderer.attachTo(qrContainerRef.current)
-    rendererRef.current = renderer
-  // customizationHook.customization is the server-persisted style; re-render
-  // when it arrives or changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.link, shortUrl, token, customizationHook.customization])
-
-  useEffect(() => {
-    return () => {
-      rendererRef.current?.destroy()
-    }
-  }, [])
-
-  const handleSaveCustomization = useCallback(async () => {
-    if (!rendererRef.current || !entry.link) return
-    try {
-      const imageBlob = await rendererRef.current.toBlob('png')
-      await customizationHook.save({ style: activeStyleRef.current, image: imageBlob })
-      toast.success('自訂樣式已儲存', getToastOptions('success'))
-    } catch (err) {
-      if (nudgeIfDemoReadOnly(err as ApiError)) return
-      // Error message is derived from the envelope code (ADR 0012).
-    }
-  }, [entry.link, customizationHook.save])
 
   async function handleDelete() {
     try {
@@ -733,49 +665,55 @@ export function LinkDetail() {
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
               QR 碼
             </h2>
+            {/* Authoritative stored composite served by the backend (ADR 0011 / bead 65g).
+                Cache-busted by the customization's updated_at so a re-save shows the
+                updated image without a stale HTTP cache hit. */}
             <div className="inline-flex rounded-lg border bg-white p-4 self-start">
-              <div ref={qrContainerRef} />
+              <img
+                src={getQrImageUrl(token, customizationHook.customization?.updated_at)}
+                alt="QR 碼"
+                width={240}
+                height={240}
+                loading="lazy"
+                className="block"
+              />
             </div>
             <p className="text-xs text-muted-foreground">
               QR 碼編碼的是短網址，修改目標網址不會更改 QR 碼像素。
             </p>
 
-            {/* Save customization (ADR 0011): uploads rendered composite + recipe
-                to the server so it persists across sessions and devices. */}
-            {entry.status !== 'deleted' && (
-              <div className="flex flex-col gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="self-start"
-                  onClick={handleSaveCustomization}
-                  disabled={customizationHook.isSaving}
-                >
-                  {customizationHook.isSaving ? (
-                    <>
-                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                      儲存中…
-                    </>
-                  ) : (
-                    <>
-                      <Save className="mr-1 h-3 w-3" />
-                      儲存自訂樣式
-                    </>
-                  )}
-                </Button>
-                {customizationHook.saveError && (
-                  <p className="text-xs text-destructive">
-                    {uploadErrorMessage(customizationHook.saveError)}
-                  </p>
-                )}
-                {customizationHook.fetchError && (
-                  <p className="text-xs text-muted-foreground">
-                    無法載入已儲存的樣式，顯示預設外觀。
-                  </p>
-                )}
-              </div>
+            {customizationHook.fetchError && (
+              <p className="text-xs text-muted-foreground">
+                無法載入已儲存的樣式，顯示預設外觀。
+              </p>
             )}
+
+            {/* Download: fetch the authoritative image endpoint and trigger browser save. */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="self-start"
+              onClick={async () => {
+                try {
+                  const url = getQrImageUrl(token, customizationHook.customization?.updated_at)
+                  const resp = await fetch(url)
+                  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+                  const blob = await resp.blob()
+                  const objectUrl = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = objectUrl
+                  a.download = `qr-${token}.png`
+                  a.click()
+                  URL.revokeObjectURL(objectUrl)
+                } catch {
+                  toast.error('下載失敗，請稍後再試。', getToastOptions('error'))
+                }
+              }}
+            >
+              <Download className="mr-1 h-3 w-3" />
+              下載 QR 碼
+            </Button>
           </div>
 
           {entry.status !== 'deleted' && (

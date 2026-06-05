@@ -145,6 +145,18 @@ export interface SaveCustomizationResponse {
 }
 
 /**
+ * Returns a relative URL for the authoritative stored QR composite image.
+ * Works in dev (via the Vite /api proxy) and in prod (same-origin).
+ * Optionally cache-busts with the customization's updated_at timestamp.
+ * The endpoint is public — no auth/credentials needed; a plain <img src> is sufficient.
+ */
+export function getQrImageUrl(token: string, updatedAt?: string): string {
+  const base = `/api/qr/${token}/image`
+  if (!updatedAt) return base
+  return `${base}?v=${encodeURIComponent(updatedAt)}`
+}
+
+/**
  * Upload a customization recipe + rendered composite to the server (owner-only).
  * Uses multipart/form-data as required by PUT /api/qr/{token}/customization.
  */
