@@ -11,9 +11,42 @@
 
 ---
 
-## ⏯️ Session state — RESUME HERE (last updated 2026-06-04 — Phase 6 grill PAUSED)
+## ⏯️ Session state — RESUME HERE (last updated 2026-06-05 — Phase 6 SHIPPED; order re-ranked)
 
-> **⏸️ 2026-06-04 (later) — Phase 6 grill PAUSED + decision layer raised to a platform layer.**
+> **✅ 2026-06-05 — Phase 6 is SHIPPED (supersedes the 2026-06-04 "grill PAUSED" note below).**
+> Verified first-hand this session against git + bd (not just roadmap text):
+> - bd epic `qr_code_generator-p6` = **13/14 done (92%)**; go-live (`p6s6`), prod-login fix
+>   (`p6.3`), demo-seed (`p6.4`), CD pipeline (`p6s4`), SHA-pin (`p6.1`) all closed. Git log confirms
+>   (`60a91d6` CD+backups, `49e1400` pin SHA, `9e5ae1c` bake VITE_GOOGLE_CLIENT_ID).
+> - Only open child `p6s5` (daily `pg_dump`→S3) is code-complete: `backup.sh`/`restore-drill.sh`
+>   scp'd by CD; box-side IAM/`.env.backup`/systemd timer owner-installed; **first real dump runs at
+>   the next 18:00 UTC tick** — operational, not a design gap.
+> - Footguns handled: `.env.prod.example` pins `TRUSTED_PROXIES=1` + `ip_extraction.py` implements XFF;
+>   CORS inert in prod (same-origin). **💬 topic #5 (infra-layer rate limiting) = raised to the platform
+>   layer** (the edge is platform-owned, ADR 0014 lives in the platform repo) — **closed from qrcode's
+>   roadmap.** Architecture lock (own Postgres · 1 uvicorn worker until Redis · single `qrcode-app:8000`
+>   · co-equal tenant on platform `edge`) stands.
+>
+> **🔀 2026-06-05 — Phase order re-ranked. Phase 7 (frontend redesign) moved to LAST.**
+> Rationale (user decision): a redesign should *skin a stable feature surface* — doing it before the
+> analytics surface (Phase 9) is settled = redrawing dashboard/LinkDetail twice. So **next-frontier
+> order = Phase 10 → 8 → 9 → 7**. Consequences: the **Tailwind v3→v4 migration (`5mz`) rides with
+> Phase 7** (v4's CSS-first `@theme` is where the redesign's tokens belong — token work done once);
+> **React 18→19 is decoupled** (independent P3, `n13`). **NEXT FRONTIER = Phase 10 (URL safety / SSRF)** —
+> the only item with a live-exposure clock now that the service is deployed and accepts arbitrary URLs.
+>
+> **🐞 2026-06-05 — 4 issues found in real use, triaged + filed to bd:**
+> - `40o` (#1, P2, bug): user-facing **size/resolution knob still present** — violates ADR 0011
+>   ("resolution is system-managed"; the "pixel" knob). → **fix now**.
+> - `65g` (#2, P1, bug): **customized QR shows vanilla** — `LinkDetail.tsx:545-564` re-renders from the
+>   recipe and **drops the logo**, never showing the authoritative stored composite; Dashboard has no QR
+>   image at all. **Fix = A** (view shows `GET /api/qr/{token}/image`; canvas only for create/edit). → **fix now**.
+> - `nk4` (#3, P3, feat): **labels never wired into the frontend** (backend ready, ADR 0010). → **Phase 7**.
+> - `yfx` (#4, P3, feat): **re-edit customization in LinkDetail** (extract `<QRCustomizer>` from
+>   Generator; depends on `65g`). → **Phase 7**.
+> **Immediate plan:** fix `40o` + `65g` (Phase-4 finish), then grill Phase 10.
+>
+> **⏸️ 2026-06-04 (later, SUPERSEDED by the 2026-06-05 note above) — Phase 6 grill PAUSED + decision layer raised to a platform layer.**
 > The shared-VPS architecture is now owned by a **platform layer** at `live_sessions/platform`
 > (its own repo). Outcomes of the Phase-6 grill before pausing:
 > - **Co-location grilled** against scheduler's box (2 vCPU / 2 GB Lightsail, Tokyo, static IP
@@ -132,11 +165,11 @@ path), and `tl8` (`boto3` + `python-multipart` deps). Grilling continues just-in
 | 3 | Ownership & duplicate-URL / token-collision rules | #5 | 0+1 | ✅ implemented (ADR 0010) |
 | 4 | QR image object storage (**S3**) | #2 | 1 | ✅ implemented (ADR 0011) · S3 provisioned (6c0) |
 | 5 | Unified error handling & logging interface | 🆕 | 1–4 | ✅ implemented (ADR 0012, 0013) |
-| 6 | Lightsail deployment (qrcode.paynepew.dev) | #3 | 2+5 | ⚪ pending · 💬 +infra rate-limit |
-| 7 | Frontend redesign (frontend-design) | #6 | 1+4 | ⚪ pending |
+| 6 | Lightsail deployment (qrcode.paynepew.dev) | #3 | 2+5 | 🟢 **shipped** (epic p6 13/14; backups await 1st timer tick) · 💬 topic #5 → platform |
+| 7 | Frontend redesign (frontend-design) | #6 | 1+4 | ⚪ pending — **deferred to LAST** (06-05); Tailwind v4 `5mz` + labels `nk4` + re-edit `yfx` ride here |
 | 8 | Caching & CDN (Redis + CDN purge + SWR) | 🆕 06-03 | 1+4 | 💬 to discuss |
 | 9 | Analytics & daily reporting (SQS → S3 → batch) | 🆕 06-03 | 1+2 | 💬 to discuss |
-| 10 | Production hardening: URL safety & SSRF | 🆕 06-03 | 1 | 💬 to discuss |
+| 10 | Production hardening: URL safety & SSRF | 🆕 06-03 | 1 | ⚪ **NEXT FRONTIER** (06-05) |
 
 Legend: 🔵 grilling · 🟢 decided · ✅ implemented (on `main`) · ⚪ pending · 💬 discussion topic queued
 
@@ -524,3 +557,11 @@ serve time (`GET /r/{token}`) or only at mint?
   (no required reviews — solo; admins can bypass). Surfaced + fixed a flaky `useGoogleOneTap` test
   (mock-miss race → real `loadGoogleScript` hung in jsdom) and 33 ruff violations. Follow-ups
   (ruff format, Dependabot, alembic drift check) tracked in bead `qr_code_generator-38x`.
+- **2026-06-05** — Resumed grill. Verified Phase 6 **shipped** (git + bd epic `p6` 13/14; only `p6s5`
+  backups awaits the 1st 18:00 UTC tick); 💬 topic #5 infra-rate-limit **raised to the platform layer**
+  (closed from qrcode). **Phase 7 (frontend redesign) re-ranked to LAST** — skin a stable surface;
+  redrawing dashboard before Phase 9 analytics = twice. New order **10→8→9→7**; Tailwind v4 (`5mz`)
+  rides with P7, React 19 (`n13`) decoupled. **NEXT = Phase 10.** 4 real-use issues filed: `40o`
+  size/"pixel" knob (ADR 0011) + `65g` customized-QR-shows-vanilla (`LinkDetail` re-renders from recipe,
+  drops logo; **Fix = A** serve stored composite) → both **fix-now**; `nk4` labels-not-wired + `yfx`
+  re-edit-in-LinkDetail → **Phase 7**.
