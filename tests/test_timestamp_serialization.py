@@ -1,47 +1,22 @@
-"""API timestamps cross the wire with a UTC marker (bead s4l).
+"""API timestamps cross the wire with a UTC marker — endpoint guards (bead s4l).
 
-Stored datetimes are naive UTC (``router._now_utc`` strips tzinfo). Serializing
+Stored datetimes are naive UTC (``router.now_utc`` strips tzinfo). Serializing
 them with a bare ``.isoformat()`` emits no ``Z``/offset, so the frontend's
 ``new Date()`` parses them as *local* time -> off by the viewer's UTC offset
 (~8h for the UTC+8 reporter). The fix tags every outgoing timestamp as UTC via
-``router._iso_utc``.
+``timeutil.iso_utc``.
 
-Two layers:
-- pure-logic unit tests on ``_iso_utc`` (no DB, instant);
-- endpoint regression guards that the info/list payloads carry a marker
-  (the customization ``updated_at`` is guarded in test_customization.py).
-
-Scope (bead s4l): ``router.py`` timestamps only. ``analytics.py``'s
-``scanned_at`` serialization carries the same skew and is tracked separately.
+The ``iso_utc`` unit tests live in test_timeutil.py; this module guards the
+router endpoints (info/list). The customization ``updated_at`` is guarded in
+test_customization.py; analytics ``scanned_at`` in test_analytics_aggregate.py.
 """
 
-from datetime import datetime, timedelta, timezone
-
-from backend.router import _iso_utc
+from datetime import datetime
 
 
 def _is_tz_aware_iso(value: str) -> bool:
     """A serialized timestamp string parses back to a tz-aware datetime."""
     return datetime.fromisoformat(value).tzinfo is not None
-
-
-class TestIsoUtcHelper:
-    def test_naive_datetime_tagged_as_utc(self):
-        # A naive (assumed-UTC) datetime gains an explicit +00:00 offset.
-        result = _iso_utc(datetime(2026, 6, 5, 14, 0, 0))
-        assert result is not None
-        assert result.endswith("+00:00")
-        assert datetime.fromisoformat(result).utcoffset() == timedelta(0)
-
-    def test_none_passes_through(self):
-        assert _iso_utc(None) is None
-
-    def test_already_aware_not_double_tagged(self):
-        aware = datetime(2026, 6, 5, 14, 0, 0, tzinfo=timezone.utc)
-        result = _iso_utc(aware)
-        # Idempotent: an already-aware UTC datetime keeps a single +00:00.
-        assert result.count("+00:00") == 1
-        assert datetime.fromisoformat(result) == aware
 
 
 class TestEndpointTimestampsCarryUtcMarker:

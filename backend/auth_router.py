@@ -24,7 +24,8 @@ from .google_identity import InvalidGoogleTokenError
 from .logging_config import hash_ip
 from .models import User
 from .rate_limiter.ip_extraction import extract_client_ip
-from .router import _now_utc, get_db
+from .router import get_db
+from .timeutil import now_utc
 
 _logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ def start_session(
     except InvalidGoogleTokenError:
         raise AppError(ErrorCode.UNAUTHENTICATED, 401, "Invalid Google credential")
 
-    user = user_repository.upsert_user(db, identity, now=_now_utc())
+    user = user_repository.upsert_user(db, identity, now=now_utc())
     _set_session_cookie(response, user.id, session_module.SessionConfig())
     return _user_response(user)
 

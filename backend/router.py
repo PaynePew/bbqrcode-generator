@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -37,6 +37,7 @@ from .storage import (
     sniff_image_content_type,
     strip_png_exif,
 )
+from .timeutil import iso_utc, now_utc
 from .token_generator import TokenCollisionError
 from .url_validator import InvalidURLError, validate_and_normalize
 
@@ -104,26 +105,6 @@ def _config():
     }
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _iso_utc(dt: Optional[datetime]) -> Optional[str]:
-    """Serialize a stored (naive-UTC) datetime as a tz-qualified ISO string.
-
-    Stored datetimes are naive UTC (``_now_utc`` strips tzinfo); a bare
-    ``isoformat()`` emits no offset, so the frontend's ``new Date()`` parses
-    them as *local* time and renders them off by the viewer's UTC offset
-    (bead s4l). Tag as UTC so the wire value is unambiguous. ``None`` passes
-    through; an already-aware value is left untouched.
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.isoformat()
-
-
 _LABEL_MAX_LEN = 100
 
 
@@ -143,9 +124,9 @@ def _link_response(link: Link, base_url: str, state: LinkState) -> dict:
         "qr_code_url": f"{base_url}/api/qr/{link.token}/image",
         "label": link.label,
         "status": state,
-        "created_at": _iso_utc(link.created_at),
-        "updated_at": _iso_utc(link.updated_at),
-        "expires_at": _iso_utc(link.expires_at),
+        "created_at": iso_utc(link.created_at),
+        "updated_at": iso_utc(link.updated_at),
+        "expires_at": iso_utc(link.expires_at),
     }
 
 
@@ -154,7 +135,7 @@ def _log_scan(db: Session, token: str, status_code: int, request: Request):
     scan_repository.record_scan(
         db,
         token=token,
-        scanned_at=_now_utc(),
+        scanned_at=now_utc(),
         status_code=status_code,
         ip_address=extract_client_ip(request, trusted_proxies),
         user_agent=request.headers.get("user-agent"),
@@ -185,7 +166,7 @@ def create_qr(
         raise invalid_url(str(e))
 
     cfg = _config()
-    now = _now_utc()
+    now = now_utc()
     expires_at = body.expires_at.replace(tzinfo=None) if body.expires_at else None
 
     try:
@@ -307,7 +288,7 @@ async def put_customization(
         if raw_logo:
             logo_bytes, logo_content_type = _validate_and_strip_image(raw_logo, "logo")
 
-    now = _now_utc()
+    now = now_utc()
 
     # Write composite under a NEW versioned key (old one left untouched).
     image_ext = "png" if image_content_type == "image/png" else "bin"
@@ -334,7 +315,7 @@ async def put_customization(
         "token": token,
         "image_key": image_key,
         "logo_key": logo_key,
-        "updated_at": _iso_utc(now),
+        "updated_at": iso_utc(now),
     }
 
 
@@ -367,7 +348,7 @@ def get_customization(
         "style": json.loads(customization.style_json),
         "image_url": storage.url_for(customization.image_key),
         "logo_url": logo_url,
-        "updated_at": _iso_utc(customization.updated_at),
+        "updated_at": iso_utc(customization.updated_at),
     }
 
 
@@ -375,7 +356,7 @@ def get_customization(
 def redirect(token: str, request: Request, db: Session = Depends(get_db)):
     link = link_repository.get_link(db, token)
 
-    state = derive_state(link, _now_utc())
+    state = derive_state(link, now_utc())
     if not state.is_redirectable:
         _log_scan(db, token, 410, request)
         raise link_gone(token)
@@ -403,7 +384,7 @@ def list_links(
         db, [link.token for link in links]
     )
     cfg = _config()
-    now = _now_utc()
+    now = now_utc()
     items = [
         {
             "token": link.token,
@@ -412,8 +393,8 @@ def list_links(
             "label": link.label,
             "status": derive_state(link, now),
             "scan_count": scan_counts.get(link.token, 0),
-            "created_at": _iso_utc(link.created_at),
-            "expires_at": _iso_utc(link.expires_at),
+            "created_at": iso_utc(link.created_at),
+            "expires_at": iso_utc(link.expires_at),
         }
         for link in links
     ]
@@ -431,7 +412,7 @@ def get_link_info(
     link = link_repository.get_link(db, token)
     authorize_owner(link, current_user)
     cfg = _config()
-    state = derive_state(link, _now_utc())
+    state = derive_state(link, now_utc())
     return _link_response(link, cfg["base_url"], state)
 
 
@@ -457,7 +438,7 @@ def patch_link(
     link = link_repository.get_link(db, token)
     authorize_owner(link, current_user)
     forbid_if_demo(current_user)
-    now = _now_utc()
+    now = now_utc()
 
     fields_to_update = body.model_fields_set & {"original_url", "expires_at", "label"}
     if not fields_to_update:
@@ -495,7 +476,7 @@ def patch_link(
     )
 
     cfg = _config()
-    new_state = derive_state(link, _now_utc())
+    new_state = derive_state(link, now_utc())
     return _link_response(link, cfg["base_url"], new_state)
 
 
@@ -511,7 +492,7 @@ def delete_link(
     link = link_repository.get_link(db, token)
     authorize_owner(link, current_user)
     forbid_if_demo(current_user)
-    link_repository.mark_deleted(db, link, _now_utc())
+    link_repository.mark_deleted(db, link, now_utc())
     return {"token": token, "status": "deleted"}
 
 
