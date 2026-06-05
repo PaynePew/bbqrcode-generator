@@ -39,6 +39,7 @@ def to_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
     """
     if dt is None:
         return None
+    # Guard the astimezone: on a naive value it would assume system-local time.
     if dt.tzinfo is not None:
         dt = dt.astimezone(timezone.utc)
     return dt.replace(tzinfo=None)

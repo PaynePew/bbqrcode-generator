@@ -46,6 +46,13 @@ class TestToNaiveUtc:
         assert result == datetime(2098, 12, 31, 16, 0, 0)
         assert result.tzinfo is None
 
+    def test_aware_negative_offset_rolls_forward(self):
+        # -05:00 rolls the instant forward: 00:00-05:00 is 05:00 the same day UTC.
+        dt = datetime(2099, 1, 1, 0, 0, 0, tzinfo=timezone(timedelta(hours=-5)))
+        result = to_naive_utc(dt)
+        assert result == datetime(2099, 1, 1, 5, 0, 0)
+        assert result.tzinfo is None
+
     def test_aware_utc_stripped_in_place(self):
         dt = datetime(2099, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         assert to_naive_utc(dt) == datetime(2099, 1, 1, 0, 0, 0)
