@@ -68,6 +68,11 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
+          # Bake the GIS One Tap client id into the SPA at build time. Repo VARIABLE
+          # (not a secret — the client id is public in the browser). Empty until set,
+          # which builds fine but leaves Google sign-in unconfigured (guest still works).
+          build-args: |
+            VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
           tags: |
             ${{ env.IMAGE }}:${{ github.sha }}
             ${{ env.IMAGE }}:latest
