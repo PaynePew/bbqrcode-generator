@@ -291,6 +291,15 @@ class TestPutCustomization:
         assert "image_key" in body
         assert body["image_key"].startswith("qr/put0002/composite_")
 
+    def test_updated_at_carries_utc_marker(
+        self, auth_client: TestClient, db_session: Session, owner
+    ):
+        # bead s4l: customization updated_at must cross the wire tz-aware so the
+        # frontend's new Date() does not render it ~8h off.
+        _insert_owned_link(db_session, "put000z", owner.id)
+        body = _put_customization(auth_client, "put000z").json()
+        assert datetime.fromisoformat(body["updated_at"]).tzinfo is not None
+
     def test_image_key_includes_versioned_uuid(
         self, auth_client: TestClient, db_session: Session, owner
     ):
