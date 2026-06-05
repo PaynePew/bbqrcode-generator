@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import router as _router_module
@@ -251,3 +252,55 @@ async def _handle_unexpected_error(_: Request, exc: Exception) -> JSONResponse:
 app.include_router(auth_router)
 app.include_router(router)
 app.include_router(redirect_router)
+
+
+# ---------------------------------------------------------------------------
+# Liveness probe + SPA serving (Phase 6 deploy)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz() -> dict[str, str]:
+    """Container liveness probe — deliberately independent of the SPA and DB.
+
+    Answers "is the process up", not "is every dependency ready" (readiness is a
+    separate concern). The prod compose healthcheck hits this, so it must not
+    depend on the static build or a DB round-trip.
+    """
+    return {"status": "ok"}
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles that falls back to index.html for client-side deep routes.
+
+    Plain ``StaticFiles(html=True)`` serves index.html only for "/", so a
+    refresh on a client route like ``/links/abc`` would 404. This returns
+    index.html for any unmatched path EXCEPT the API/redirect prefixes, which
+    must keep returning a real 404 (→ JSON error envelope, ADR 0012) instead of
+    HTML.
+    """
+
+    _RESERVED = ("api/", "r/")
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # Match on the scope URL path (forward-slash, mount-relative), NOT the
+            # ``path`` arg — StaticFiles os-normalizes it, so on Windows it is
+            # backslash-separated and an "api/" prefix check would silently miss.
+            request_path = scope.get("path", "").lstrip("/")
+            if exc.status_code == 404 and not request_path.startswith(self._RESERVED):
+                return await super().get_response("index.html", scope)
+            raise
+
+
+# Mount the built SPA as the single same-origin upstream (SPA + /api + /r in one
+# container behind the shared edge Caddy). Mounted AFTER the routers so /api and
+# /r win. Gated by SERVE_SPA (the production image sets SERVE_SPA=true in the
+# Dockerfile): tests and the CI backend job leave it unset, so unmatched paths
+# keep returning JSON 404 envelopes (ADR 0012) instead of the SPA index.html.
+# The directory check is a belt-and-suspenders guard against a missing build.
+_SPA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.environ.get("SERVE_SPA", "").lower() == "true" and os.path.isdir(_SPA_DIR):
+    app.mount("/", SPAStaticFiles(directory=_SPA_DIR, html=True), name="spa")

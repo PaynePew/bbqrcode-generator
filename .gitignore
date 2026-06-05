@@ -5,6 +5,10 @@ __pycache__/
 .venv/
 venv/
 .env
+.env.*
+!.env.example
+!.env.prod.example
+!.env.backup.example
 
 # SQLite
 *.db

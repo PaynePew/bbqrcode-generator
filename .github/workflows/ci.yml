@@ -79,8 +79,8 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install dependencies (prod + dev for pytest)
+        run: pip install -r requirements-dev.txt
 
       - name: Run pytest
         # SECRET/BASE_URL are self-provided by tests/conftest.py; AWS_* left unset

@@ -1,0 +1,26 @@
+# Keep the build context small + reproducible. The frontend stage rebuilds
+# node_modules and dist from the lockfile, so never ship local copies.
+
+# VCS
+.git
+.gitignore
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node (rebuilt in the frontend stage)
+**/node_modules/
+frontend/dist/
+
+# Secrets / env — never bake into the image
+.env
+.env.*
+
+# Local dev / scratch (not needed at build or runtime)
+docker-compose.yml
+TEMPmt.txt

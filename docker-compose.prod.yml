@@ -1,0 +1,71 @@
+# Production compose for qrcode — an INDEPENDENT tenant project on the shared VPS.
+# Contract: platform/docs/tenant-deploy-contract.md. SEEDED by the platform layer
+# (platform/docs/requests/qrcode-onboarding-handoff.md); qrcode's agent owns it.
+#
+# name: qrcode  → distinct project, so scheduler's `--remove-orphans` can never
+# treat these containers as orphans (coloc Rule B).
+name: qrcode
+
+services:
+  qrcode-app:
+    build: .
+    image: ghcr.io/paynepew/qr_code_generator:${IMAGE_TAG:-latest}   # CD builds+pushes; prod pulls by tag
+    # Pin the container name so it's deterministic (default would be
+    # `qrcode-qrcode-app-1`). The CD smoke step + `docker logs qrcode-app` address
+    # it by this exact name; the edge Caddy reaches it via the network alias
+    # (= service name) regardless. Single-instance tenant, so no scaling tradeoff.
+    container_name: qrcode-app
+    restart: unless-stopped
+    env_file: .env.prod
+    depends_on:
+      qrcode-migrate:
+        condition: service_completed_successfully
+    networks:
+      - default          # reach own Postgres
+      - edge             # reached by the shared edge Caddy as qrcode-app:8000
+    mem_limit: 384m
+    # NO host ports — outward traffic arrives via the edge Caddy. Local debug
+    # only: you MAY temporarily add `ports: ["127.0.0.1:8000:8000"]`.
+    healthcheck:
+      # python:slim has no curl; use urllib. Hits the dedicated /healthz liveness
+      # route (independent of the SPA + DB), wired in backend/main.py.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  qrcode-migrate:
+    build: .
+    image: ghcr.io/paynepew/qr_code_generator:${IMAGE_TAG:-latest}
+    command: ["alembic", "upgrade", "head"]      # env.py reads DATABASE_URL
+    env_file: .env.prod
+    depends_on:
+      qrcode-db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - default
+
+  qrcode-db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file: .env.prod            # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+    volumes:
+      - qrcode_pgdata:/var/lib/postgresql/data
+    networks:
+      - default                    # private to qrcode; deliberately NOT on `edge`
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-qrcode} -d $${POSTGRES_DB:-qr_codes}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  default:
+  edge:
+    external: true                 # platform-owned. On the box: `docker network create edge`.
+                                   # Local test without the platform edge: create it yourself first.
+
+volumes:
+  qrcode_pgdata:

@@ -1,0 +1,9 @@
+# Dev / test / lint dependencies. `-r requirements.txt` pulls in the prod deps too,
+# so a single `uv pip install -r requirements-dev.txt` gives a full local/CI test
+# environment. The production Docker image installs requirements.txt only.
+-r requirements.txt
+httpx>=0.28.1
+pytest>=9.0.3
+pytest-asyncio>=1.4.0
+ruff==0.15.15
+testcontainers[postgres]>=4.14.2
