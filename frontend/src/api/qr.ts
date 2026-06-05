@@ -167,10 +167,14 @@ export async function saveCustomization(args: SaveCustomizationArgs): Promise<Sa
   if (args.logo) {
     form.append('logo', args.logo, 'logo')
   }
+  // Let axios derive `multipart/form-data; boundary=…` from the FormData itself.
+  // The apiClient default is application/json; forcing 'multipart/form-data' here
+  // would omit the boundary, so the server cannot parse the parts (422). Setting
+  // the header to undefined overrides the default and lets axios compute it.
   const { data } = await apiClient.put<SaveCustomizationResponse>(
     `/api/qr/${args.token}/customization`,
     form,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+    { headers: { 'Content-Type': undefined } },
   )
   return data
 }

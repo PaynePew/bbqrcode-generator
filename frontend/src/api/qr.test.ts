@@ -273,7 +273,7 @@ describe('saveCustomization', () => {
     updated_at: '2026-06-01T00:00:00',
   }
 
-  it('sends PUT /qr/{token}/customization as multipart/form-data', async () => {
+  it('sends PUT /qr/{token}/customization as multipart, letting axios derive the boundary', async () => {
     vi.mocked(apiClient.put).mockResolvedValueOnce({ data: mockResponse })
 
     await saveCustomization({
@@ -282,10 +282,13 @@ describe('saveCustomization', () => {
       image: new Blob(['fake-png'], { type: 'image/png' }),
     })
 
+    // Content-Type must be undefined so axios generates `multipart/form-data;
+    // boundary=…` from the FormData. Forcing 'multipart/form-data' drops the
+    // boundary and the server cannot parse the parts (regression: 422).
     expect(apiClient.put).toHaveBeenCalledWith(
       '/api/qr/abc1234/customization',
       expect.any(FormData),
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': undefined } },
     )
   })
 
