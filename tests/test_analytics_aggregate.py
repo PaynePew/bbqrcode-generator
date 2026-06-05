@@ -81,7 +81,8 @@ class TestRecentScans:
     def test_scanned_at_carries_utc_marker(self):
         # bead 8s8: scanned_at is stored naive-UTC; it must cross the wire
         # tz-aware so the frontend does not render it ~8h off (sibling of s4l).
-        recent = aggregate_scans([_scan(datetime(2026, 5, 8, 10, 0, 0))])["recent_scans"]
+        scans = [_scan(datetime(2026, 5, 8, 10, 0, 0))]
+        recent = aggregate_scans(scans)["recent_scans"]
         assert datetime.fromisoformat(recent[0]["scanned_at"]).tzinfo is not None
 
     def test_sorted_descending_by_scanned_at(self):
