@@ -10,7 +10,7 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: true,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
     storageState: './e2e/.auth/state.json',
     trace: 'on-first-retry',
   },

@@ -1,14 +1,18 @@
 import { test, expect } from '@playwright/test'
 
-// Proves the bypass: with the minted session cookie (loaded via storageState)
-// the dashboard renders its AUTHENTICATED view — never the "請先登入" logged-out
-// state — with no Google round-trip (bead 8vd). "顯示已刪除" renders only when
-// isAuthenticated, so it is a clean auth gate to assert on.
-test('injected session cookie lands on the authenticated dashboard', async ({ page }) => {
+// Proves the bypass end-to-end: the minted session cookie (loaded via
+// storageState) lands on the AUTHENTICATED dashboard WITH its owner data — no
+// Google round-trip (bead 8vd). The bug this guards against is a cross-origin
+// DATA-fetch failure (axios hitting the wrong origin with the cookie), so we
+// assert the owner link-list actually rendered — proving the authed /api/qr
+// call succeeded same-origin — not just the /auth/me-gated chrome.
+test('injected session cookie lands on the authenticated dashboard with data', async ({
+  page,
+}) => {
   await page.goto('/dashboard')
 
-  // "顯示已刪除" renders only when isAuthenticated — a clean auth gate — and the
-  // logged-out "請先登入" prompt must be absent. No Google round-trip involved.
-  await expect(page.getByText('顯示已刪除')).toBeVisible()
+  // Never the logged-out prompt.
   await expect(page.getByText('請先登入')).toHaveCount(0)
+  // The seeded demo account's link-list rendered (authed data fetch succeeded).
+  await expect(page.getByText(/你建立的連結/)).toBeVisible()
 })
