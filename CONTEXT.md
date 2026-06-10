@@ -67,6 +67,10 @@ Labels are **optional** and **not unique** — a Link may be unlabeled, and the 
 
 The **Short URL** is the full redirect endpoint URL (`{BASE_URL}/r/{token}`). It is encoded into the QR code image.
 
+## Destination URL
+
+The **Destination URL** (`links.original_url`) is the owner-supplied address a Token redirects to. The service is a **pure redirector: it never fetches the Destination URL server-side** — the URL is only stored at create/PATCH and returned to the scanner's browser as a 302 `Location` at `GET /r/{token}` (the QR image encodes the Short URL, not the destination). This invariant is load-bearing for the security model: while it holds there is **no SSRF surface** (ADR 0015), so destination-safety is string-only mint-time hygiene — scheme allowlist, length cap, IDNA/UTS-46 host normalization, and an internal-IP-literal blocklist. The Destination URL is normalized at mint for security and storage consistency, never deduplicated (ADR 0002). Adding any server-side fetch of the Destination URL would introduce an SSRF surface and require a fetch-time resolve-and-pin guard (ADR 0015).
+
 ## Customization
 
 **Customization** is a Link owner's chosen visual treatment of its QR — foreground / background colour, dot style, and an optional embedded **logo**. It is purely cosmetic: a customized QR still encodes the same **Short URL**, so editing the destination never invalidates it. Render resolution and error-correction level are system-managed, not customization choices — resolution is fixed (on-screen size is a layout concern) and error correction is raised automatically when a logo is present so the code still scans.
