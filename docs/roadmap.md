@@ -11,7 +11,7 @@
 
 ---
 
-## ⏯️ Session state — RESUME HERE (last updated 2026-06-05 — Phase 6 SHIPPED; order re-ranked)
+## ⏯️ Session state — RESUME HERE (last updated 2026-06-10 — Phase 10 GRILLED → ADR 0015; next = Phase 8)
 
 > **✅ 2026-06-05 — Phase 6 is SHIPPED (supersedes the 2026-06-04 "grill PAUSED" note below).**
 > Verified first-hand this session against git + bd (not just roadmap text):
@@ -32,8 +32,15 @@
 > analytics surface (Phase 9) is settled = redrawing dashboard/LinkDetail twice. So **next-frontier
 > order = Phase 10 → 8 → 9 → 7**. Consequences: the **Tailwind v3→v4 migration (`5mz`) rides with
 > Phase 7** (v4's CSS-first `@theme` is where the redesign's tokens belong — token work done once);
-> **React 18→19 is decoupled** (independent P3, `n13`). **NEXT FRONTIER = Phase 10 (URL safety / SSRF)** —
-> the only item with a live-exposure clock now that the service is deployed and accepts arbitrary URLs.
+> **React 18→19 is decoupled** (independent P3, `n13`).
+>
+> **✅ 2026-06-10 — Phase 10 GRILLED → ADR 0015.** Framing corrected: the service **never fetches the
+> destination server-side** (store + 302 `Location` only) ⇒ **no SSRF surface today**; the live threat is
+> open redirect. **Shipped scope = string-only mint-time hygiene** (length cap 2048 · IDNA/UTS-46 host
+> normalization via `idna` · IP-literal blocklist hardening · scheme allowlist already done); reuse
+> `INVALID_URL` 422, redirect path unchanged. **SSRF + malware-reputation DEFERRED** to access-time (ADR
+> 0015 records the fetch-time resolve-and-pin / serve-time-interstitial future home; Safe Browsing v4 is
+> deprecated → Web Risk). Implementation filed: bd `qr_code_generator-ltr` (P2, ready). **NEXT FRONTIER = Phase 8.**
 >
 > **🐞 2026-06-05 — 4 issues found in real use, triaged + filed to bd:**
 > - `40o` (#1, P2, bug): user-facing **size/resolution knob still present** — violates ADR 0011
@@ -480,24 +487,35 @@ into a daily report.
 
 ## Phase 10 — Production hardening: URL safety & SSRF
 
-**Source:** user topic #7 (2026-06-03). **Status:** 💬 to discuss. **Framing:** production checks
-before accepting an arbitrary user-supplied URL to mint / redirect.
+**Source:** user topic #7 (2026-06-03). **Status:** ✅ GRILLED 2026-06-10 → **ADR 0015**. Framing
+**corrected during the grill** (see below). Implementation = bd `qr_code_generator-ltr` (ready).
 
-**Goal (proposed).** Validate + sanitize every user-supplied `original_url` at create/PATCH so the
-service can't become an open redirector to malware or an SSRF pivot.
+**🔑 Framing correction (the load-bearing finding).** The service **never fetches `original_url`
+server-side** — it only *stores* it (create/PATCH) and returns it as a 302 `Location` to the
+scanner's browser (`GET /r/{token}`); the QR encodes the Short URL, not the destination. So **SSRF
+has no surface today** — the live threat is **open redirect**, and SSRF/malware-reputation only
+become real (and must be gated at *access time*, not mint) once a server-side fetch is added. The
+phase title keeps "SSRF" for continuity, but the SSRF work is deferred. → CONTEXT.md `## Destination URL`.
 
-**Checks to grill / spec:**
-- **Malicious-URL screening** — URL **blocklist** and/or **Google Safe Browsing API** before accept.
-- **Normalization** — canonicalize before store/compare (also feeds Phase 3 dedup).
-- **Length cap** — reject over-long URLs (DoS / storage abuse).
-- **SSRF protection** — block **private / loopback / link-local** (and cloud metadata IPs like
-  `169.254.169.254`) so no server-side fetch/redirect can reach internal services.
-- **IDNA normalization** — normalize internationalized / punycode hosts (anti-homograph spoofing).
-- **Scheme allowlist** — permit only `http` / `https`; reject `javascript:` / `data:` / `file:` etc.
+**Decided — ships now (deterministic, string-only mint-time hygiene in `url_validator`, create+PATCH):**
+- **Scheme allowlist** — `http`/`https` only. ✅ already in place.
+- **Length cap** — reject input > **2048** chars → `INVALID_URL` 422.
+- **IDNA / UTS-46** — normalize host with the `idna` package (IDNA 2008 + UTS-46), store canonical
+  ASCII/punycode, reject IDNA-invalid hosts. **Homograph *detection* out of scope** (normalize only).
+  `idna` promoted from transitive → explicit dependency.
+- **IP-literal blocklist** — existing loopback/private/link-local **+** `is_reserved`/`is_multicast`/
+  `is_unspecified` + IPv4-mapped-IPv6 unwrap.
+- **Rejection shape** — reuse existing `INVALID_URL` 422 envelope (ADR 0012); **no new error code**.
+- **Redirect path unchanged** — SSRF + malware deferred ⇒ no serve-time work this phase.
 
-**Open questions:** sync at create vs async (Safe Browsing latency)? · lives at the create endpoint
-(Phase 1) vs middleware? · rejection error shape (Phase 5) · does SSRF gating also apply at redirect
-serve time (`GET /r/{token}`) or only at mint?
+**Deferred (with correct future home recorded in ADR 0015):**
+- **SSRF** — only when a server-side fetch of the destination exists; guard goes **at the fetch point**
+  doing DNS **resolve-and-pin** + per-redirect-hop re-validation (mint-time DNS = false confidence,
+  rebinding bypasses it). Adopt `Drawbridge` / `ssrf-protect`; OWASP SSRF Cheat Sheet.
+- **Malware-reputation screening** — authoritative gate is **serve-time interstitial + background
+  re-scan**, not mint (mint-only = theater for printed QRs). ⚠️ **Safe Browsing v4 is DEPRECATED** —
+  server-side successor is **Google Cloud Web Risk API** (`google-cloud-webrisk`), not the wording
+  used earlier in this section.
 
 ---
 
@@ -565,3 +583,12 @@ serve time (`GET /r/{token}`) or only at mint?
   size/"pixel" knob (ADR 0011) + `65g` customized-QR-shows-vanilla (`LinkDetail` re-renders from recipe,
   drops logo; **Fix = A** serve stored composite) → both **fix-now**; `nk4` labels-not-wired + `yfx`
   re-edit-in-LinkDetail → **Phase 7**.
+- **2026-06-10** — Phase 10 grilled (**ADR 0015**). 🔑 Framing corrected: the service **never fetches
+  `original_url` server-side** (store + 302 `Location` only; QR encodes Short URL) ⇒ **no SSRF surface
+  today**; live threat = open redirect. Both SSRF and malware-reputation are time-of-check-vs-use
+  problems QR maximizes (minted once, scanned for months) ⇒ their real gate is **access-time, deferred**.
+  **Ships now:** string-only mint-time hygiene — length cap 2048 · IDNA/UTS-46 host normalize via `idna`
+  (homograph *detection* out) · IP-literal blocklist + `is_reserved`/`is_multicast`/`is_unspecified` +
+  IPv4-mapped-IPv6 · scheme allowlist (done). Reuse `INVALID_URL` 422 (no new code); redirect unchanged.
+  ⚠️ Safe Browsing v4 deprecated → **Web Risk**. Tools: `idna` (promote to explicit dep), `Drawbridge`/
+  `ssrf-protect` (future fetch-time). → CONTEXT.md `## Destination URL`; impl bd `qr_code_generator-ltr`.

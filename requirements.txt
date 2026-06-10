@@ -8,6 +8,7 @@ sqlalchemy==2.0.50
 qrcode[pil]==8.2
 pydantic>=2.13.4
 google-auth>=2.53.0
+idna>=3.7  # direct use in url_validator (IDNA/UTS-46 host normalization, ADR 0015); was transitive via requests
 requests>=2.32.0
 itsdangerous>=2.2.0
 python-dotenv>=1.2.2
