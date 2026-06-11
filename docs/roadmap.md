@@ -11,7 +11,7 @@
 
 ---
 
-## ⏯️ Session state — RESUME HERE (last updated 2026-06-11 — Phase 9 GRILLED → ADR 0016; Phase 8 partially decided (Redis dropped); next = finish Phase 8 then Phase 7)
+## ⏯️ Session state — RESUME HERE (last updated 2026-06-11 — Phase 9 GRILLED → ADR 0016 + Phase 8 GRILLED → ADR 0017; next = ONE backend build for P8+P9, then Phase 7)
 
 > **✅ 2026-06-11 — Phase 9 GRILLED → ADR 0016** (done out of order, *before* finishing Phase 8,
 > because Phase 9 unblocks it). Decided: **privacy-by-construction scan model** (store coarse derived
@@ -25,7 +25,11 @@
 > rate-limiter store off-process to unlock >1 worker) · **image caching = `immutable` on the versioned
 > S3 object, NOT the token endpoint** (which stays a `no-cache` 302 pointer; re-customization, not
 > never-expiry, is the staleness trap) · **CloudFront-on-S3** is feasible & VPS-independent (whole-site
-> CDN is platform-owned). **NEXT FRONTIER = finish Phase 8** (redirect cache now unblocked) **then Phase 7.**
+> CDN is platform-owned). **Phase 8 then fully GRILLED same session → ADR 0017** — build the in-process
+> redirect cache (`cachetools.TTLCache`, derive-state-on-read, evict on PATCH/DELETE, 300s safety net, no
+> negative cache) + image immutable-caching via **CloudFront + OAC** (private bucket, default
+> `*.cloudfront.net`; token endpoint → 302 to CDN URL). **NEXT FRONTIER = ONE backend build covering P8+P9
+> together** (same redirect/scan code), **then Phase 7.** P8 also needs a **HITL CloudFront provisioning** task.
 
 > **✅ 2026-06-05 — Phase 6 is SHIPPED (supersedes the 2026-06-04 "grill PAUSED" note below).**
 > Verified first-hand this session against git + bd (not just roadmap text):
@@ -188,7 +192,7 @@ path), and `tl8` (`boto3` + `python-multipart` deps). Grilling continues just-in
 | 5 | Unified error handling & logging interface | 🆕 | 1–4 | ✅ implemented (ADR 0012, 0013) |
 | 6 | Lightsail deployment (qrcode.paynepew.dev) | #3 | 2+5 | 🟢 **shipped** (epic p6 13/14; backups await 1st timer tick) · 💬 topic #5 → platform |
 | 7 | Frontend redesign (frontend-design) | #6 | 1+4 | ⚪ pending — **deferred to LAST** (06-05); Tailwind v4 `5mz` + labels `nk4` + re-edit `yfx` ride here |
-| 8 | Caching & CDN (Redis + CDN purge + SWR) | 🆕 06-03 | 1+4 | 🔵 grilling (06-10) |
+| 8 | Caching & CDN (Redis + CDN purge + SWR) | 🆕 06-03 | 1+4 | 🟢 decided (ADR 0017) |
 | 9 | Analytics & daily reporting (SQS → S3 → batch) | 🆕 06-03 | 1+2 | 🟢 decided (ADR 0016) |
 | 10 | Production hardening: URL safety & SSRF | 🆕 06-03 | 1 | ✅ implemented (ADR 0015, bd `ltr` / PR #113) |
 
@@ -449,7 +453,7 @@ the backend `DEMO_READ_ONLY` 403 code), so an interviewer never mistakes read-on
 **Source:** user topic #2 (2026-06-03). **Status:** 🔵 GRILLING (opened 2026-06-10; partially decided
 2026-06-11). **Framing:** 是否為了 demo 架構完整加入 Redis Cache（為展示完整性，而非當前負載必要）。
 
-**🟢 Partially decided (2026-06-11) — pending a finishing pass + a Phase-8 ADR:**
+**🟢 Decided (2026-06-11) — canonical record in ADR 0017:**
 - **Redis: dropped (do not introduce now).** A read-cache in front of the redirect's **synchronous Scan
   write** is theater, and the read it would shield is a sub-ms PK lookup. Redis has exactly two real homes
   here, both recorded for the "說詞" / future: (1) **after Phase 9** makes scan-ingestion async, a
@@ -467,9 +471,19 @@ the backend `DEMO_READ_ONLY` 403 code), so an interviewer never mistakes read-on
   (stop proxying). A **whole-site** CDN (Cloudflare in front of `qrcode.paynepew.dev`) is **platform-owned**
   (the `edge`, like topic #5) — not qrcode's call, and not where our CDN story lives. **Never CDN-cache the
   302 redirect** (printed QR outlives any cache; stale destination = sends scanners to the wrong place).
-- **Still to finish:** SWR header specifics · whether to actually stand up CloudFront vs ship correct
-  cache headers + an ADR documenting the drop-in point · the redirect read-cache design (now unblocked by
-  Phase 9: TTL bounded by `expires_at`, active invalidation on edit/delete).
+- **Redirect read-cache: BUILD it, in-process** (not deferred — cheap + a demonstrable cache pattern; the
+  read it shields is sub-ms localhost so this is demonstration > load). `cachetools.TTLCache`, unit
+  `token→{original_url, expires_at, deleted_at}`, **derive-state-on-read** (expiry auto-correct, no
+  eviction), **active eviction only on PATCH/DELETE** (2 points), **TTL = 300s safety net**, **no negative
+  caching** (random-token floods defeat it; redirect flood = edge rate-limit, platform-owned). Correct only
+  at 1 worker → Redis is the multi-worker upgrade. **302 never CDN-cached.**
+- **Image: option A + CloudFront NOW (甲).** Token endpoint → **302 to the CloudFront URL** (customized) /
+  regen inline `no-cache` (vanilla); versioned S3 object gets `immutable` at upload. **CloudFront + OAC**
+  (bucket made **private**, read only via the distribution), **default `*.cloudfront.net`** (custom domain
+  deferred — needs platform DNS, and option A hides the CDN domain behind the 302 anyway). `storage.public_url`
+  → CloudFront URL. **HITL** AWS provisioning (distribution + OAC + bucket-policy change) like S3 `6c0`.
+- **SWR: N/A** — immutable images don't need stale-while-revalidate, and the 302 isn't CDN-cached; dropped
+  from scope (the roadmap title's "SWR" was speculative).
 
 **Goal (proposed).** Add a caching layer so the hot redirect path (`GET /r/{token}` → `original_url`)
 and QR-image fetches don't hit DB/origin on every scan, and so the architecture shows a credible
@@ -670,3 +684,15 @@ phase title keeps "SSRF" for continuity, but the SSRF work is deferred. → CONT
   section): Redis dropped; image `immutable` on the versioned S3 object + token endpoint as `no-cache` 302
   pointer (re-customization, not never-expiry, is the staleness trap); CloudFront-on-S3 (VPS-independent),
   whole-site CDN is platform-owned; never CDN-cache the 302.
+- **2026-06-11 (later)** — Phase 8 grilled to done (**ADR 0017**), same session, right after Phase 9 (which
+  unblocked it). **Honesty lens (again):** the image endpoint is **not** the scan hot path (scanners hit
+  `/r/{token}`, which doesn't serve the image), and post-Phase-9 the redirect's only sync work is a sub-ms
+  localhost PK read — so none of Phase 8 is load-driven; value = correctness-clean cache pattern + OAC
+  security posture + portfolio. **Redis dropped** (two real homes recorded: multi-worker redirect cache +
+  off-process rate-limiter). **Redirect read-cache BUILT in-process** (`cachetools.TTLCache`,
+  derive-state-on-read so expiry is automatic, evict only on PATCH/DELETE, 300s safety-net TTL, no negative
+  cache; 1-worker-only → Redis is the upgrade). **Image: option A + CloudFront NOW** — versioned object
+  `immutable` at upload, token endpoint → 302 to **CloudFront** URL, **CloudFront + OAC** (private bucket,
+  default `*.cloudfront.net`; custom domain deferred, hidden behind the 302 anyway). HITL AWS provisioning
+  like S3 `6c0`. SWR dropped (immutable assets don't need it). **Next = ONE backend build for P8+P9** (same
+  redirect/scan code), then Phase 7.
