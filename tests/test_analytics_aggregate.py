@@ -75,6 +75,102 @@ class TestScansByDay:
         assert type(result["scans_by_day"][0]["status_codes"]) is dict
 
 
+class TestScansByCountry:
+    def test_single_country_bucket(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), country="US"),
+            _scan(datetime(2026, 5, 8), country="US"),
+        ]
+        assert aggregate_scans(scans)["scans_by_country"] == {"US": 2}
+
+    def test_multiple_country_buckets(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), country="US"),
+            _scan(datetime(2026, 5, 8), country="TW"),
+            _scan(datetime(2026, 5, 8), country="US"),
+            _scan(datetime(2026, 5, 8), country="DE"),
+        ]
+        result = aggregate_scans(scans)["scans_by_country"]
+        assert result == {"US": 2, "TW": 1, "DE": 1}
+
+    def test_none_country_grouped_under_unknown(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), country=None),
+            _scan(datetime(2026, 5, 8), country="US"),
+        ]
+        result = aggregate_scans(scans)["scans_by_country"]
+        assert result["unknown"] == 1
+        assert result["US"] == 1
+
+    def test_result_is_plain_dict(self):
+        scans = [_scan(datetime(2026, 5, 8), country="US")]
+        assert type(aggregate_scans(scans)["scans_by_country"]) is dict
+
+
+class TestScansBySubdivision:
+    def test_single_subdivision_bucket(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), subdivision="CA"),
+            _scan(datetime(2026, 5, 8), subdivision="CA"),
+        ]
+        assert aggregate_scans(scans)["scans_by_subdivision"] == {"CA": 2}
+
+    def test_multiple_subdivision_buckets(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), subdivision="CA"),
+            _scan(datetime(2026, 5, 8), subdivision="TW-TPE"),
+            _scan(datetime(2026, 5, 8), subdivision="CA"),
+            _scan(datetime(2026, 5, 8), subdivision="NY"),
+        ]
+        result = aggregate_scans(scans)["scans_by_subdivision"]
+        assert result == {"CA": 2, "TW-TPE": 1, "NY": 1}
+
+    def test_none_subdivision_grouped_under_unknown(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), subdivision=None),
+            _scan(datetime(2026, 5, 8), subdivision="CA"),
+        ]
+        result = aggregate_scans(scans)["scans_by_subdivision"]
+        assert result["unknown"] == 1
+        assert result["CA"] == 1
+
+    def test_result_is_plain_dict(self):
+        scans = [_scan(datetime(2026, 5, 8), subdivision="CA")]
+        assert type(aggregate_scans(scans)["scans_by_subdivision"]) is dict
+
+
+class TestScansByDeviceClass:
+    def test_single_device_class_bucket(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), device_class="mobile"),
+            _scan(datetime(2026, 5, 8), device_class="mobile"),
+        ]
+        assert aggregate_scans(scans)["scans_by_device_class"] == {"mobile": 2}
+
+    def test_multiple_device_class_buckets(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), device_class="mobile"),
+            _scan(datetime(2026, 5, 8), device_class="desktop"),
+            _scan(datetime(2026, 5, 8), device_class="bot"),
+            _scan(datetime(2026, 5, 8), device_class="desktop"),
+        ]
+        result = aggregate_scans(scans)["scans_by_device_class"]
+        assert result == {"mobile": 1, "desktop": 2, "bot": 1}
+
+    def test_none_device_class_grouped_under_unknown(self):
+        scans = [
+            _scan(datetime(2026, 5, 8), device_class=None),
+            _scan(datetime(2026, 5, 8), device_class="mobile"),
+        ]
+        result = aggregate_scans(scans)["scans_by_device_class"]
+        assert result["unknown"] == 1
+        assert result["mobile"] == 1
+
+    def test_result_is_plain_dict(self):
+        scans = [_scan(datetime(2026, 5, 8), device_class="desktop")]
+        assert type(aggregate_scans(scans)["scans_by_device_class"]) is dict
+
+
 class TestRecentScans:
     def test_field_shape(self):
         scans = [_scan(datetime(2026, 5, 8, 10, 0, 0))]
