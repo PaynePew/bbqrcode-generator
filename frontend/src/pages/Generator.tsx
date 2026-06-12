@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useForm } from '@tanstack/react-form'
-import { useDropzone, type FileRejection } from 'react-dropzone'
-import { Loader2, CheckCircle2, Upload, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader2, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { DownloadSplitButton } from '@/components/ui/DownloadSplitButton'
-import { ColorPickerField } from '@/components/ui/ColorPickerField'
+import { QRCustomizer } from '@/components/QRCustomizer'
 import { urlSchema, URL_MAX_LENGTH } from '@/schemas/url'
-import { create as createRenderer, type QRRenderer, type RendererOptions } from '@/qr/renderer'
+import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
+import { styleToRendererOptions } from '@/qr/rendererOptions'
 import type { ApiError } from '@/api/client'
 import { useCreateEntry } from '@/state/linkEntry'
 import {
@@ -21,11 +21,8 @@ import {
   DEFAULT_STYLE,
   QR_RENDER_SIZE,
   type QRStyle,
-  type DotType,
-  type ECL,
 } from '@/state/styleStore'
 import { saveCustomization } from '@/api/qr'
-import { applyEclPolicy } from '@/qr/eclPolicy'
 import { useMotionPreference } from '@/lib/motionPreference'
 import { getToastOptions } from '@/lib/toastOptions'
 import { nudgeIfDemoReadOnly } from '@/lib/demoNudge'
@@ -43,69 +40,10 @@ import {
 } from '@/lib/expiresAtPresets'
 import { computePreviewHeight } from '@/lib/mobileLayout'
 
-const LOGO_MAX_BYTES = 2 * 1024 * 1024
-
-const DOT_TYPES: { value: DotType; label: string }[] = [
-  { value: 'square', label: '方形' },
-  { value: 'dots', label: '圓點' },
-  { value: 'rounded', label: '圓角' },
-  { value: 'extra-rounded', label: '超圓角' },
-  { value: 'classy', label: '精緻' },
-]
-
-const ECL_OPTIONS: { value: ECL; label: string }[] = [
-  { value: 'L', label: 'L（低）' },
-  { value: 'M', label: 'M（中）' },
-  { value: 'Q', label: 'Q（較高）' },
-  { value: 'H', label: 'H（高）' },
-]
-
 function validateUrl(value: string): string | undefined {
   if (!value) return '請輸入網址'
   const result = urlSchema.safeParse(value)
   return result.success ? undefined : result.error.issues[0].message
-}
-
-function styleToRendererOptions(
-  style: QRStyle,
-  data?: string,
-  logoUrl?: string | null,
-  logoScale?: number,
-): RendererOptions {
-  const dotType = style.dotType as import('qr-code-styling').DotType
-
-  let cornerSquareType: 'square' | 'dot' | 'extra-rounded' = 'square'
-  let cornerDotType: 'square' | 'dot' = 'square'
-  if (style.dotType === 'dots') {
-    cornerSquareType = 'dot'
-    cornerDotType = 'dot'
-  } else if (style.dotType === 'rounded' || style.dotType === 'extra-rounded') {
-    cornerSquareType = 'extra-rounded'
-    cornerDotType = 'dot'
-  }
-
-  const { ecl } = applyEclPolicy(!!logoUrl, style.ecl)
-
-  return {
-    ...(data ? { data } : {}),
-    width: QR_RENDER_SIZE,
-    height: QR_RENDER_SIZE,
-    dotsOptions: { color: style.foreground, type: dotType },
-    backgroundOptions: { color: style.background },
-    cornersSquareOptions: { type: cornerSquareType },
-    cornersDotOptions: { type: cornerDotType },
-    qrOptions: { errorCorrectionLevel: ecl },
-    ...(logoUrl
-      ? {
-          image: logoUrl,
-          imageOptions: {
-            imageSize: logoScale ?? 0.2,
-            margin: 4,
-            hideBackgroundDots: true,
-          },
-        }
-      : { image: '' }),
-  }
 }
 
 export function Generator() {
@@ -202,42 +140,19 @@ export function Generator() {
     updateRenderer(style, logoObjectUrl, scale)
   }
 
-  const onDrop = useCallback(
-    (acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
-      setLogoError(null)
-
-      if (rejectedFiles.length > 0) {
-        const err = rejectedFiles[0].errors[0]
-        if (err.code === 'file-too-large') {
-          setLogoError('檔案超過 2 MB 上限，請選擇較小的圖片。')
-        } else if (err.code === 'file-invalid-type') {
-          setLogoError('不支援的檔案類型，請上傳 PNG、JPG 或 WebP 圖片。')
-        } else {
-          setLogoError('無法上傳此檔案，請重試。')
-        }
-        return
-      }
-
-      if (acceptedFiles.length === 0) return
-
-      const file = acceptedFiles[0]
+  const handleLogoAccepted = useCallback(
+    (file: File) => {
       revokeLogo()
-
       const objectUrl = URL.createObjectURL(file)
       logoObjectUrlRef.current = objectUrl
       setLogoObjectUrl(objectUrl)
       setLogoFile(file)
+      setLogoError(null)
       updateRenderer(style, objectUrl, logoScale)
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [style, logoScale],
   )
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'image/png': [], 'image/jpeg': [], 'image/webp': [] },
-    maxSize: LOGO_MAX_BYTES,
-    multiple: false,
-  })
 
   const mutation = useCreateEntry()
 
@@ -352,8 +267,6 @@ export function Generator() {
     form.reset({ url: '', label: '' })
     mutation.reset()
   }
-
-  const { ecl: effectiveEcl, isLocked: eclLocked } = applyEclPolicy(!!logoObjectUrl, style.ecl)
 
   return (
     <div className="w-full">
@@ -603,156 +516,18 @@ export function Generator() {
               外觀設定
             </h2>
 
-            <ColorPickerField
-              label="前景色"
-              value={style.foreground}
-              onChange={(color) => handleStyleChange({ ...style, foreground: color })}
+            <QRCustomizer
+              style={style}
+              onStyleChange={handleStyleChange}
+              logoObjectUrl={logoObjectUrl}
+              logoScale={logoScale}
+              onLogoAccepted={handleLogoAccepted}
+              onLogoRemove={handleLogoRemove}
+              onLogoScaleChange={handleLogoScaleChange}
+              logoError={logoError}
+              onLogoError={setLogoError}
               disabled={mutation.isPending}
             />
-
-            <ColorPickerField
-              label="背景色"
-              value={style.background}
-              onChange={(color) => handleStyleChange({ ...style, background: color })}
-              disabled={mutation.isPending}
-            />
-
-            <div className="flex flex-col gap-1">
-              <label htmlFor="dot-style-select" className="text-sm font-medium">
-                點點樣式
-              </label>
-              <select
-                id="dot-style-select"
-                value={style.dotType}
-                onChange={(e) =>
-                  handleStyleChange({ ...style, dotType: e.target.value as DotType })
-                }
-                disabled={mutation.isPending}
-                className="rounded-md border border-input px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/50 bg-background disabled:opacity-50"
-              >
-                {DOT_TYPES.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* ECL select */}
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <label htmlFor="ecl-select" className="text-sm font-medium">
-                  錯誤修正等級
-                </label>
-                {eclLocked && (
-                  <span
-                    className="text-xs text-amber-600 cursor-help"
-                    title="插入 Logo 時為確保掃描穩定性，錯誤修正等級必須為 H。"
-                  >
-                    （已鎖定）
-                  </span>
-                )}
-              </div>
-              <select
-                id="ecl-select"
-                value={effectiveEcl}
-                onChange={(e) => handleStyleChange({ ...style, ecl: e.target.value as ECL })}
-                disabled={mutation.isPending || eclLocked}
-                className="rounded-md border border-input px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/50 bg-background disabled:opacity-50"
-                title={eclLocked ? '插入 Logo 時為確保掃描穩定性，錯誤修正等級必須為 H。' : undefined}
-              >
-                {ECL_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Logo upload */}
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Logo</label>
-                <span
-                  className="text-xs text-muted-foreground cursor-help"
-                  title="Logo 僅暫存於記憶體中，重新整理頁面後需重新上傳。"
-                >
-                  （重整後消失）
-                </span>
-              </div>
-
-              {logoObjectUrl ? (
-                <div className="flex items-center gap-3">
-                  <img
-                    src={logoObjectUrl}
-                    alt="Logo 預覽"
-                    className="h-16 w-16 rounded border border-border object-contain bg-white"
-                  />
-                  <div className="flex flex-col gap-2 flex-1">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs text-muted-foreground">
-                        Logo 大小（{Math.round(logoScale * 100)}%）
-                      </label>
-                      <input
-                        type="range"
-                        min={0.1}
-                        max={0.25}
-                        step={0.01}
-                        value={logoScale}
-                        onChange={(e) => handleLogoScaleChange(parseFloat(e.target.value))}
-                        disabled={mutation.isPending}
-                        className="flex-1 accent-primary disabled:opacity-50"
-                        aria-label="Logo 大小滑桿"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleLogoRemove}
-                      disabled={mutation.isPending}
-                      className="flex items-center gap-1 self-start text-xs text-destructive underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
-                    >
-                      <X className="h-3 w-3" />
-                      移除 Logo
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  {...getRootProps()}
-                  className={[
-                    'flex flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed px-4 py-6 text-center cursor-pointer transition-colors',
-                    isDragActive
-                      ? 'border-primary bg-primary/5'
-                      : 'border-muted-foreground/30 hover:border-primary/50',
-                    mutation.isPending ? 'opacity-50 pointer-events-none' : '',
-                  ].join(' ')}
-                >
-                  <input {...getInputProps()} />
-                  <Upload className="h-6 w-6 text-muted-foreground" />
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm text-muted-foreground">
-                      {isDragActive ? '放開以上傳' : '拖曳或點擊上傳 Logo'}
-                    </span>
-                    <span className="text-xs text-muted-foreground/70">
-                      PNG、JPG、WebP，小於 2 MB
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {logoError && (
-                <span className="text-xs text-destructive">{logoError}</span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => handleStyleChange({ ...DEFAULT_STYLE })}
-              disabled={mutation.isPending}
-              className="self-start text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
-            >
-              重設為預設值
-            </button>
           </div>
 
           {shortUrl && (
