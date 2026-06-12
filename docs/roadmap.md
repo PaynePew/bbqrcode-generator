@@ -32,7 +32,7 @@
 >   `country`/`subdivision`/`device_class`. ⚠️ Gotcha (now in the runbook + bd memory): geoipupdate's
 >   compiled-default `DatabaseDirectory` on this box is `/var/lib/GeoIP`, **not** `/usr/share/GeoIP` — pin it.
 > - **NEXT = Phase 7 (frontend redesign) — the last phase.** Carries the analytics dashboard panel
->   (ADR 0016), labels `nk4`, re-edit-in-LinkDetail `yfx`, Tailwind v3→v4 `5mz`; React 19 `n13` decoupled.
+>   (ADR 0016), labels `nk4`, re-edit-in-LinkDetail `yfx`, **Tailwind v3→v4 + React 18→19 (both in `5mz`, reopened 06-12)**; `n13` (TS6/lucide/eslint) stays deferred.
 >
 > **✅ 2026-06-11 — Phase 9 GRILLED → ADR 0016** (done out of order, *before* finishing Phase 8,
 > because Phase 9 unblocks it). Decided: **privacy-by-construction scan model** (store coarse derived
@@ -71,7 +71,7 @@
 > analytics surface (Phase 9) is settled = redrawing dashboard/LinkDetail twice. So **next-frontier
 > order = Phase 10 → 8 → 9 → 7**. Consequences: the **Tailwind v3→v4 migration (`5mz`) rides with
 > Phase 7** (v4's CSS-first `@theme` is where the redesign's tokens belong — token work done once);
-> **React 18→19 is decoupled** (independent P3, `n13`).
+> **React 18→19 is also part of `5mz`** (separate PR) — **NOT** `n13` (corrected 06-12: `n13` = TypeScript 6 + lucide-react + eslint-plugin-react-hooks v6).
 >
 > **✅ 2026-06-10 — Phase 10 GRILLED → ADR 0015.** Framing corrected: the service **never fetches the
 > destination server-side** (store + 302 `Location` only) ⇒ **no SSRF surface today**; the live threat is
@@ -670,7 +670,7 @@ phase title keeps "SSRF" for continuity, but the SSRF work is deferred. → CONT
   backups awaits the 1st 18:00 UTC tick); 💬 topic #5 infra-rate-limit **raised to the platform layer**
   (closed from qrcode). **Phase 7 (frontend redesign) re-ranked to LAST** — skin a stable surface;
   redrawing dashboard before Phase 9 analytics = twice. New order **10→8→9→7**; Tailwind v4 (`5mz`)
-  rides with P7, React 19 (`n13`) decoupled. **NEXT = Phase 10.** 4 real-use issues filed: `40o`
+  rides with P7, React 19 (in `5mz`, **not** `n13` — corrected 06-12) decoupled. **NEXT = Phase 10.** 4 real-use issues filed: `40o`
   size/"pixel" knob (ADR 0011) + `65g` customized-QR-shows-vanilla (`LinkDetail` re-renders from recipe,
   drops logo; **Fix = A** serve stored composite) → both **fix-now**; `nk4` labels-not-wired + `yfx`
   re-edit-in-LinkDetail → **Phase 7**.
