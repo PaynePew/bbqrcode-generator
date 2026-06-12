@@ -22,10 +22,11 @@ a production system should behave, and it weakens the architecture's credibility
 
 ## Solution
 
-A Link owner's analytics now shows **total scans**, **scans over time**, **scans by country**, and
-**scans by device class** — and stores **no raw scanner PII at all**: the scanner's IP and user
-agent are turned into a coarse country and device class at the moment of the scan and then
-discarded, so there is nothing raw to leak. The owner sees total counts, not unique-visitor counts.
+A Link owner's analytics now shows **total scans**, **scans over time**, **scans by country**,
+**scans by region (subdivision)**, and **scans by device class** — and stores **no raw scanner PII
+at all**: the scanner's IP and user agent are turned into a coarse country + region and device class
+at the moment of the scan and then discarded (the city the geo source knows is never kept), so there
+is nothing raw to leak. The owner sees total counts, not unique-visitor counts.
 
 Editing a Link's Destination URL (or deleting the Link) takes effect for scanners **immediately**:
 a short-lived in-process cache on the redirect path is actively invalidated on every edit/delete,
@@ -42,9 +43,9 @@ design with no stale-image problem.
 Owner — analytics:
 1. As a Link owner, I want to see the total number of scans for a Link, so that I know how much traffic it drives.
 2. As a Link owner, I want to see scans broken down over time (per day), so that I can spot trends and spikes.
-3. As a Link owner, I want to see which countries my scans came from, so that I understand my audience's geography.
+3. As a Link owner, I want to see which countries and regions (states / provinces / 縣市) my scans came from, so that I understand my audience's geography — but never a city-level location that could single out an individual scanner.
 4. As a Link owner, I want to see what device classes (mobile/desktop) scanned my Link, so that I understand how my audience engages.
-5. As a Link owner, I want a recent-activity feed of the latest scans (time, outcome, country, device class), so that the dashboard feels alive and current.
+5. As a Link owner, I want a recent-activity feed of the latest scans (time, outcome, country, region, device class), so that the dashboard feels alive and current.
 6. As a Link owner, I want to be certain the system never shows me — or even stores — a scanner's raw IP or user agent, so that I can trust the product's privacy stance and not become a custodian of others' PII.
 7. As a Link owner, I want analytics to remain owner-only, so that my campaign performance stays private (a non-owner gets a 404, ADR 0009).
 8. As a Link owner, I do not need unique-visitor counts, so I accept that no per-scanner identifier is retained.
@@ -80,25 +81,31 @@ Developer / operator (stakeholder):
 
 Modules (🟢 new deep module; otherwise modify an existing module):
 
-- **`scan_derivation` (🟢 new deep module).** Pure functions `derive_country(ip) -> country | None`
-  and `derive_device_class(user_agent) -> device_class | None`. This is the single **privacy
+- **`scan_derivation` (🟢 new deep module).** Pure functions
+  `derive_geo(ip) -> (country, subdivision) | (None, None)` and
+  `derive_device_class(user_agent) -> device_class | None`. This is the single **privacy
   boundary**: the only code that touches the raw scanner IP / user agent, both discarded
-  immediately after deriving the coarse value. No DB, no HTTP — pure and independently testable.
-  The geo source (e.g. `geoip2` + a bundled GeoLite2-Country database vs an ingest-time lookup) and
-  the UA parser are an internal detail chosen at build time and hidden behind this interface.
+  immediately after deriving the coarse value — and `city` / lat-long are derived-and-discarded
+  too, never returned (ADR 0016, 2026-06-12 amendment: keep subdivision, reject city). No DB, no
+  HTTP — pure and independently testable. The geo source (`geoip2` + a bundled **GeoLite2-City**
+  database — the City edition is what carries the subdivision) and the UA parser are an internal
+  detail chosen at build time and hidden behind this interface.
 - **Scan model + Alembic migration `0006` (modify).** Drop `scans.ip_address` and
-  `scans.user_agent`; add `scans.country` and `scans.device_class` (both nullable strings). **No
-  data backfill** (throwaway prototype data, per the Phase 2 stance). Removing the columns is what
-  structurally fixes the current ADR 0006 violation in `analytics._recent_scans`.
+  `scans.user_agent`; add `scans.country`, `scans.subdivision` and `scans.device_class` (all
+  nullable strings). **No data backfill** (throwaway prototype data, per the Phase 2 stance).
+  Removing the columns is what structurally fixes the current ADR 0006 violation in
+  `analytics._recent_scans`.
 - **Async scan ingestion (modify `router` + `scan_repository`).** The redirect handler derives the
-  coarse country/device class at the request edge (while the request is in hand), then hands the
-  Scan write to FastAPI `BackgroundTasks`; the 302/410 returns without waiting for the commit.
-  `record_scan` now accepts `country` / `device_class` instead of `ip_address` / `user_agent`.
+  coarse country/subdivision/device class at the request edge (while the request is in hand), then
+  hands the Scan write to FastAPI `BackgroundTasks`; the 302/410 returns without waiting for the
+  commit. `record_scan` now accepts `country` / `subdivision` / `device_class` instead of
+  `ip_address` / `user_agent`.
   Trade-off: **at-most-once** recording (a scan may be lost on a crash between responding and
   writing) — acceptable for analytics counting (ADR 0016).
-- **`analytics.aggregate_scans` (modify deep module).** Add `scans_by_country` and
-  `scans_by_device_class` aggregates; change `recent_scans` to a coarse feed (`scanned_at`,
-  `status_code`, `country`, `device_class`) with no IP/UA. Stays a pure function over `list[Scan]`.
+- **`analytics.aggregate_scans` (modify deep module).** Add `scans_by_country`,
+  `scans_by_subdivision` and `scans_by_device_class` aggregates; change `recent_scans` to a coarse
+  feed (`scanned_at`, `status_code`, `country`, `subdivision`, `device_class`) with no IP/UA/city.
+  Stays a pure function over `list[Scan]`.
 - **`link_cache` (🟢 new deep module).** An in-process `cachetools.TTLCache` (no Redis) keyed by
   Token, caching the snapshot `{original_url, expires_at, deleted_at}` — the fields needed to derive
   Link state. Interface: `get(token)`, a load-on-miss path, and `evict(token)`. **TTL = 300 s as a
@@ -121,8 +128,9 @@ Modules (🟢 new deep module; otherwise modify an existing module):
   CloudFront-only policy), use the **default `*.cloudfront.net`** domain, and document it under
   `docs/deploy`. The app integrates via the `CDN_BASE_URL` env var consumed by `storage.url_for`.
 
-New runtime dependencies: `cachetools`; a geo source for country derivation; a user-agent parser for
-device-class derivation (the latter two chosen at build time, hidden behind `scan_derivation`).
+New runtime dependencies: `cachetools`; a geo source for country + subdivision derivation
+(`geoip2` + GeoLite2-City); a user-agent parser for device-class derivation (the latter two chosen
+at build time, hidden behind `scan_derivation`).
 
 Unchanged contracts: analytics stays owner-only (404 to non-owners, ADR 0009); the redirect stays
 public; the error envelope (ADR 0012) is unchanged.
@@ -137,16 +145,18 @@ and the `auth_client` / `owner` fixtures for owner-scoped endpoints).
 
 Modules to test (all four selected):
 
-- **`scan_derivation`** (pure, privacy-critical): assert IP→country and UA→device_class derivations
-  for representative inputs, `None`/empty handling, and — most importantly — that a recorded Scan
-  never carries a raw IP or user agent. Highest-priority correctness/privacy test.
+- **`scan_derivation`** (pure, privacy-critical): assert IP→(country, subdivision) and
+  UA→device_class derivations for representative inputs, `None`/empty handling, that **city is never
+  returned** even though the City DB carries it, and — most importantly — that a recorded Scan never
+  carries a raw IP or user agent. Highest-priority correctness/privacy test.
 - **`link_cache` + a redirect anti-stale integration test** (highest value): unit-test hit/miss/evict
   and that state is derived on read (an entry past its `expires_at` resolves to expired without
   eviction); integration-test that editing a Link's Destination URL (PATCH) makes the very next
   redirect follow the new URL, and that deleting a Link makes the next redirect return gone — proving
   the eviction discipline holds. Prior art: existing redirect 302/410 tests and `tests/test_scan_repository.py`.
-- **`analytics.aggregate_scans`**: assert the `scans_by_country` and `scans_by_device_class` buckets
-  are correct and that `recent_scans` carries no IP/UA fields. Prior art: `tests/test_analytics_aggregate.py`,
+- **`analytics.aggregate_scans`**: assert the `scans_by_country`, `scans_by_subdivision` and
+  `scans_by_device_class` buckets are correct and that `recent_scans` carries no IP/UA/city fields.
+  Prior art: `tests/test_analytics_aggregate.py`,
   `tests/test_analytics.py`.
 - **`storage.url_for` (CDN) + image endpoint 302**: assert `url_for` returns the CDN URL when
   `CDN_BASE_URL` is set and the S3 URL otherwise; integration-test that a customized Link's image

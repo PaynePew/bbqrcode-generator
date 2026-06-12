@@ -31,9 +31,12 @@ the constraint holds.
 ## Decision
 
 **1. Privacy-by-construction scan model.** A Scan retains only coarse, *derived*
-attributes: `scanned_at`, `status_code`, `token`, a coarse **`country`** (derived from
-the scanner IP at ingest) and a coarse **`device_class`** (derived from the user agent at
-ingest). The raw IP and user agent are derived-then-discarded and **never stored**. This
+attributes: `scanned_at`, `status_code`, `token`, a coarse **`country`** and its
+first-level **`subdivision`** (state / province / 縣市 — both derived from the scanner IP
+at ingest) and a coarse **`device_class`** (derived from the user agent at ingest).
+Subdivision is the **finest geographic granularity persisted**; see the 2026-06-12
+amendment for why city is derived-and-discarded rather than stored. The raw IP and user
+agent are derived-then-discarded and **never stored**. This
 makes ADR 0006 structurally true — you cannot leak what you never persisted — rather than
 enforced only at display time, and it fixes the current `_recent_scans` leak by removing
 the columns it reads from. The owner sees **total** scan counts, not unique-visitor
@@ -51,9 +54,10 @@ deferred pipeline builds on (decision 4), so it is never throwaway work.
 **3. Analytics surface = live SQL, not batch.** The owner-only
 `GET /api/qr/{token}/analytics` endpoint aggregates on demand (`GROUP BY` over `scans`)
 and returns: `total_scans`, `scans_by_day` (time series), **`scans_by_country`**,
-**`scans_by_device_class`**, and a **coarse `recent_scans`** feed (`scanned_at`,
-`status_code`, `country`, `device_class` — no IP / UA). Phase 7 renders this as a
-dashboard panel. There is **no** daily email / report job in this phase.
+**`scans_by_subdivision`** (region breakdown), **`scans_by_device_class`**, and a
+**coarse `recent_scans`** feed (`scanned_at`, `status_code`, `country`, `subdivision`,
+`device_class` — no IP / UA / city). Phase 7 renders this as a dashboard panel. There is
+**no** daily email / report job in this phase.
 
 **4. Deferred — designed, not built: the SQS → S3 → batch pipeline (and the daily report
 it would feed).** When scan volume justifies durable decoupling and independent scaling,
@@ -71,9 +75,12 @@ seam, this is an **incremental swap, not a rewrite**.
 ## Consequences
 
 - A migration drops the raw `ip_address` / `user_agent` columns and adds `country` /
-  `device_class`; existing rows are not backfilled (throwaway prototype data, consistent
-  with the Phase 2 "no data migration" stance). The current ADR-0006 violation disappears
-  with the columns.
+  `subdivision` / `device_class`; existing rows are not backfilled (throwaway prototype
+  data, consistent with the Phase 2 "no data migration" stance). The current ADR-0006
+  violation disappears with the columns.
+- The geo source is the **GeoLite2-City** edition (it carries country + subdivision),
+  ~60 MB+ vs the Country edition's ~9 MB — sized for the bd `bii` HITL slice / deploy
+  image accordingly. `device_class` still needs no external data (pure UA-parser dep).
 - The redirect hot path stops blocking on the Scan write. This is the **prerequisite that
   unblocks the Phase 8 redirect read-cache** (token→`original_url` with active invalidation
   on PATCH / DELETE): with the write off the path, the read is the only thing left to cache.
@@ -90,3 +97,27 @@ seam, this is an **incremental swap, not a rewrite**.
   decision. The honest story — "live SQL now, event pipeline when volume justifies it,
   here is the at-least-once / idempotency / DLQ design for that day" — is a stronger
   artifact than a fragile half-built pipeline missing exactly those parts.
+
+## Amendment — 2026-06-12: add a coarse `subdivision` (region); city rejected
+
+The original model kept `country` as the only geographic attribute. We extend it to also
+keep the first-level **`subdivision`** (state / province / 縣市) so the dashboard can show
+a region breakdown — but **explicitly stop above city level**.
+
+**Why subdivision and not city.** Privacy-by-construction means the guarantee comes from
+*what we never persist*, not from display-time suppression. At this project's scale (a
+personal / portfolio deployment where a Link may have only a handful of scans), a
+**city-level** origin combined with `scanned_at` + `device_class` can fingerprint a single
+real person — re-introducing exactly the ADR 0006 risk this model was built to remove.
+Pushing city behind a k-anonymity display threshold (e.g. hide cities with < k scans)
+would move the guarantee back to *enforced at display*, which decision 1 deliberately
+rejected. Subdivision is coarse enough to stay non-identifying at low volume while still
+being a useful dimension.
+
+**What changes.** The geo source becomes **GeoLite2-City** (it carries country +
+subdivision; the Country edition does not). At ingest the derivation reads
+`country.iso_code` and `subdivisions.most_specific` and **discards the rest** — city,
+lat/long, and the IP are never persisted (derive-then-discard, unchanged in spirit). The
+Scan model gains a `subdivision` column; the analytics surface gains `scans_by_subdivision`
+and adds `subdivision` to the coarse `recent_scans` feed. This stays within
+privacy-by-construction: city is knowable to the source but never stored.

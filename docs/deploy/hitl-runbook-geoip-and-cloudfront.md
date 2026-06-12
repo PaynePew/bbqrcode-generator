@@ -1,4 +1,4 @@
-# HITL runbook — country-derivation source (bd `bii`) + CloudFront/OAC (bd `ebf`)
+# HITL runbook — geo-derivation source: country + subdivision (bd `bii`) + CloudFront/OAC (bd `ebf`)
 
 > The two **human-in-the-loop** slices of the P8+P9 backend build (PRD bd `qr_code_generator-ba6`).
 > These are steps **you** execute by hand (MaxMind sign-up, AWS console / CLI); the AFK code
@@ -7,37 +7,44 @@
 
 ---
 
-## Part A — Country-derivation data source · bd `qr_code_generator-bii`
+## Part A — Geo-derivation data source · bd `qr_code_generator-bii`
 
-Turns a scanner IP into a coarse `country` **at ingest, then the raw IP is discarded** (ADR 0016).
-Only the `scan_derivation` module touches the IP. `device_class` is **not** part of this slice — it
-comes from a pure pip UA-parser dependency with no external data, handled in the AFK slice `15l`.
+Turns a scanner IP into a coarse `country` + first-level `subdivision` (state / province / 縣市)
+**at ingest, then the raw IP — and the city — are discarded** (ADR 0016, 2026-06-12 amendment:
+subdivision added, **city rejected** as de-anonymizing at low scan volume). Only the
+`scan_derivation` module touches the IP. `device_class` is **not** part of this slice — it comes
+from a pure pip UA-parser dependency with no external data, handled in the AFK slice `15l`.
 
-### Decision (recommended: GeoLite2-Country, offline `.mmdb`)
+### Decision (recommended: GeoLite2-**City**, offline `.mmdb`)
+
+The **City** edition is required (not Country) because it is the only GeoLite2 edition that carries
+the `subdivision` we keep. We derive `country` + `subdivision` from it and **discard city / lat-long**
+(privacy-by-construction: the source knows the city, the Scan never stores it).
 
 | Option | Verdict | Why |
 |---|---|---|
-| **MaxMind GeoLite2-Country `.mmdb`** | ✅ recommended | Free, **offline** lookup (no per-scan network call), microsecond lookups, no rate limit on lookups |
+| **MaxMind GeoLite2-City `.mmdb`** | ✅ recommended | Free, **offline** lookup (no per-scan network call), microsecond lookups; carries country **and** subdivision (~60 MB+) |
+| GeoLite2-Country `.mmdb` | ⚪ | Smaller (~9 MB) but has **no subdivision** → only country; rejected once subdivision was in scope |
 | Ingest-time geo API (ipinfo / ip-api) | ⚪ | Adds an external call per scan (even if async), rate limits, another runtime dependency |
-| Device-class only (drop country) | ⚪ fallback | Zero setup, but loses the country dimension stories 3 |
+| Device-class only (drop geo) | ⚪ fallback | Zero setup, but loses the geographic dimension |
 
-### Steps (GeoLite2)
+### Steps (GeoLite2-City)
 
 1. **Create a free MaxMind account** — https://www.maxmind.com/en/geolite2/signup
 2. **Generate a license key** — account portal → *Manage License Keys* →
    https://www.maxmind.com/en/accounts/current/license-key → **Generate New License Key**.
    When asked *"Will this key be used for GeoIP Update?"* answer **Yes** (so the key works with the
    `geoipupdate` tool). Record your **Account ID** and the **License Key**.
-3. **Get `GeoLite2-Country.mmdb`** — two ways:
-   - **Manual:** account → *Download Files* → **GeoLite2 Country** → download the `.tar.gz`, extract
-     `GeoLite2-Country.mmdb`.
+3. **Get `GeoLite2-City.mmdb`** — two ways:
+   - **Manual:** account → *Download Files* → **GeoLite2 City** → download the `.tar.gz`, extract
+     `GeoLite2-City.mmdb`.
    - **`geoipupdate` (recommended — keeps it fresh):** install `geoipupdate`, write `/etc/GeoIP.conf`:
      ```
      AccountID <your account id>
      LicenseKey <your license key>
-     EditionIDs GeoLite2-Country
+     EditionIDs GeoLite2-City
      ```
-     Run `geoipupdate` → writes `GeoLite2-Country.mmdb` into the configured `DatabaseDirectory`
+     Run `geoipupdate` → writes `GeoLite2-City.mmdb` into the configured `DatabaseDirectory`
      (default `/usr/share/GeoIP/`).
 4. **EULA / freshness constraints (load-bearing):**
    - The GeoLite EULA requires you to **keep data current — delete a database within 30 days of a new
@@ -49,21 +56,25 @@ comes from a pure pip UA-parser dependency with no external data, handled in the
 5. **Deploy placement** — either bundle the `.mmdb` into the prod image, or fetch it at deploy via
    `geoipupdate`. Expose the path to the app via a new env var (the config output of this slice):
    ```
-   GEOIP_DB_PATH=/usr/share/GeoIP/GeoLite2-Country.mmdb
+   GEOIP_DB_PATH=/usr/share/GeoIP/GeoLite2-City.mmdb
    ```
 6. **Python read (for the AFK `scan_derivation` slice)** — `pip install geoip2`; the module opens the
-   reader once and looks up:
+   reader once and derives **country + subdivision only**, deliberately ignoring city / lat-long:
    ```python
    import geoip2.database, geoip2.errors
-   reader = geoip2.database.Reader(GEOIP_DB_PATH)          # open once at startup
+   reader = geoip2.database.Reader(GEOIP_DB_PATH)          # GeoLite2-City, open once at startup
    try:
-       country = reader.country(ip).country.iso_code        # e.g. "TW", "US"
+       resp = reader.city(ip)
+       country = resp.country.iso_code                      # e.g. "TW", "US"
+       sub = resp.subdivisions.most_specific
+       subdivision = sub.iso_code or sub.name               # admin level 1; e.g. "KHH", "CA"
+       # resp.city / resp.location are intentionally NOT read — never persisted (ADR 0016).
    except (geoip2.errors.AddressNotFoundError, ValueError):
-       country = None                                       # private/unknown IP → None
+       country = subdivision = None                         # private/unknown IP → None
    ```
 
 ### Hand-off to AFK slice `15l`
-- `GeoLite2-Country.mmdb` reachable at `GEOIP_DB_PATH` in **dev and prod**.
+- `GeoLite2-City.mmdb` reachable at `GEOIP_DB_PATH` in **dev and prod**.
 - `geoip2` added to `requirements.txt` (the UA parser too, for `device_class`).
 - Attribution line placement decided (Phase 7).
 

@@ -17,6 +17,10 @@ venv/
 *.db-shm
 *.db-wal
 
+# GeoLite2 country DB — licensed MaxMind data, fetched via geoipupdate, never
+# committed (ADR 0016, bd qr_code_generator-bii). The backend/data/ dir is kept.
+backend/data/*.mmdb
+
 # Editor / OS
 .DS_Store
 .vscode/

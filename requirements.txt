@@ -14,5 +14,6 @@ itsdangerous>=2.2.0
 python-dotenv>=1.2.2
 alembic>=1.18.4
 cachetools>=5.3.0  # in-process redirect read-cache (ADR 0017)
+geoip2>=4.8.0  # offline GeoLite2-City lookup at scan ingest → country + subdivision (ADR 0016, bd bii); reader opened once in scan_derivation
 psycopg2-binary>=2.9.12
 asgi-correlation-id>=5.0.0
