@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useForm } from '@tanstack/react-form'
@@ -29,6 +29,14 @@ import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
 import { parse as parseUA } from '@/lib/uaParser'
+import { QRCustomizer } from '@/components/QRCustomizer'
+import {
+  DEFAULT_STYLE,
+  QR_RENDER_SIZE,
+  type QRStyle,
+} from '@/state/styleStore'
+import { create as createRenderer, type QRRenderer } from '@/qr/renderer'
+import { styleToRendererOptions } from '@/qr/rendererOptions'
 
 const dtf = new Intl.DateTimeFormat('zh-TW', {
   year: 'numeric',
@@ -508,10 +516,107 @@ export function LinkDetail() {
   const [isEditingExpiry, setIsEditingExpiry] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  // QR customization edit state (bead qr_code_generator-yfx)
+  const [isEditingCustomization, setIsEditingCustomization] = useState(false)
+  const [editStyle, setEditStyle] = useState<QRStyle>(DEFAULT_STYLE)
+  const [editLogoObjectUrl, setEditLogoObjectUrl] = useState<string | null>(null)
+  const [editLogoFile, setEditLogoFile] = useState<File | null>(null)
+  const [editLogoScale, setEditLogoScale] = useState(0.2)
+  const [editLogoError, setEditLogoError] = useState<string | null>(null)
+  const editLogoObjectUrlRef = useRef<string | null>(null)
+  const editRendererRef = useRef<QRRenderer | null>(null)
+
   const entry = useLinkEntry(token ?? '')
   const customizationHook = useCustomization(token ?? '')
 
   const shortUrl = entry.link?.short_url ?? null
+
+  // Seed edit state from server customization when the panel opens
+  function openCustomizationEdit() {
+    const c = customizationHook.customization
+    if (c) {
+      setEditStyle({
+        foreground: c.style.foreground,
+        background: c.style.background,
+        dotType: (c.style.dotType as QRStyle['dotType']) ?? DEFAULT_STYLE.dotType,
+        ecl: (c.style.ecl as QRStyle['ecl']) ?? DEFAULT_STYLE.ecl,
+      })
+    } else {
+      setEditStyle({ ...DEFAULT_STYLE })
+    }
+    setEditLogoObjectUrl(null)
+    setEditLogoFile(null)
+    setEditLogoScale(0.2)
+    setEditLogoError(null)
+    setIsEditingCustomization(true)
+  }
+
+  function revokeEditLogo() {
+    if (editLogoObjectUrlRef.current) {
+      URL.revokeObjectURL(editLogoObjectUrlRef.current)
+      editLogoObjectUrlRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      revokeEditLogo()
+      editRendererRef.current?.destroy()
+    }
+  }, [])
+
+  const handleEditLogoAccepted = useCallback((file: File) => {
+    revokeEditLogo()
+    const objectUrl = URL.createObjectURL(file)
+    editLogoObjectUrlRef.current = objectUrl
+    setEditLogoObjectUrl(objectUrl)
+    setEditLogoFile(file)
+    setEditLogoError(null)
+  }, [])
+
+  function handleEditLogoRemove() {
+    revokeEditLogo()
+    setEditLogoObjectUrl(null)
+    setEditLogoFile(null)
+    setEditLogoError(null)
+  }
+
+  function cancelCustomizationEdit() {
+    revokeEditLogo()
+    setIsEditingCustomization(false)
+  }
+
+  async function saveCustomizationEdit() {
+    if (!shortUrl) return
+
+    // Build a hidden renderer to export the composite blob
+    const renderer = createRenderer(
+      styleToRendererOptions(editStyle, shortUrl, editLogoObjectUrl, editLogoScale),
+    )
+    editRendererRef.current?.destroy()
+    editRendererRef.current = renderer
+
+    try {
+      const blob = await renderer.toBlob('png')
+      await customizationHook.save({
+        style: {
+          foreground: editStyle.foreground,
+          background: editStyle.background,
+          dotType: editStyle.dotType,
+          ecl: editStyle.ecl,
+          size: QR_RENDER_SIZE,
+        },
+        image: blob,
+        logo: editLogoFile ?? undefined,
+      })
+      toast.success('外觀已儲存', getToastOptions('success'))
+      revokeEditLogo()
+      setIsEditingCustomization(false)
+    } catch (err) {
+      if (nudgeIfDemoReadOnly(err as ApiError)) return
+      toast.error('外觀儲存失敗，請稍後再試。', getToastOptions('error'))
+    }
+  }
 
   async function handleDelete() {
     try {
@@ -688,32 +793,94 @@ export function LinkDetail() {
               </p>
             )}
 
-            {/* Download: fetch the authoritative image endpoint and trigger browser save. */}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="self-start"
-              onClick={async () => {
-                try {
-                  const url = getQrImageUrl(token, customizationHook.customization?.updated_at)
-                  const resp = await fetch(url)
-                  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-                  const blob = await resp.blob()
-                  const objectUrl = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = objectUrl
-                  a.download = `qr-${token}.png`
-                  a.click()
-                  URL.revokeObjectURL(objectUrl)
-                } catch {
-                  toast.error('下載失敗，請稍後再試。', getToastOptions('error'))
-                }
-              }}
-            >
-              <Download className="mr-1 h-3 w-3" />
-              下載 QR 碼
-            </Button>
+            <div className="flex gap-2 flex-wrap">
+              {/* Download: fetch the authoritative image endpoint and trigger browser save. */}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const url = getQrImageUrl(token, customizationHook.customization?.updated_at)
+                    const resp = await fetch(url)
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+                    const blob = await resp.blob()
+                    const objectUrl = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = objectUrl
+                    a.download = `qr-${token}.png`
+                    a.click()
+                    URL.revokeObjectURL(objectUrl)
+                  } catch {
+                    toast.error('下載失敗，請稍後再試。', getToastOptions('error'))
+                  }
+                }}
+              >
+                <Download className="mr-1 h-3 w-3" />
+                下載 QR 碼
+              </Button>
+
+              {/* Edit customization — only available for non-deleted links (ADR 0011) */}
+              {entry.status !== 'deleted' && !isEditingCustomization && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={openCustomizationEdit}
+                >
+                  <Pencil className="mr-1 h-3 w-3" />
+                  編輯外觀
+                </Button>
+              )}
+            </div>
+
+            {/* Inline customization editor (bead qr_code_generator-yfx) */}
+            {isEditingCustomization && (
+              <div className="rounded-lg border border-border p-4 flex flex-col gap-5">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  編輯外觀
+                </h3>
+                <QRCustomizer
+                  style={editStyle}
+                  onStyleChange={setEditStyle}
+                  logoObjectUrl={editLogoObjectUrl}
+                  logoScale={editLogoScale}
+                  onLogoAccepted={handleEditLogoAccepted}
+                  onLogoRemove={handleEditLogoRemove}
+                  onLogoScaleChange={setEditLogoScale}
+                  logoError={editLogoError}
+                  onLogoError={setEditLogoError}
+                  disabled={customizationHook.isSaving}
+                />
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={saveCustomizationEdit}
+                    disabled={customizationHook.isSaving}
+                    className={customizationHook.isSaving ? 'grayscale' : ''}
+                  >
+                    {customizationHook.isSaving ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        儲存中…
+                      </>
+                    ) : (
+                      '儲存外觀'
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={cancelCustomizationEdit}
+                    disabled={customizationHook.isSaving}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
           {entry.status !== 'deleted' && (
