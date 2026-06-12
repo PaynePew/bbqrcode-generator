@@ -20,9 +20,9 @@ const CONFIG = {
   branchPrefix: 'slice/issue-',
   baseBranch  : 'main',   // ★build 從此分支開、且應等於你「當前 checked-out 的分支」（merge.md 合進當前分支）
   adversarial : true,     // 對抗驗證開（只擋 critical/high）
-  autoMerge   : false,    // 安全預設：只備妥分支等人合。★要「鏈式自動完成下游」須設 true（false 時 loop 只跑一輪）
+  autoMerge   : true,     // ★鏈式自動完成下游：合到本地 main + bd close，解鎖 6bk
   only        : null,     // null = 每輪做 bd ready 全部；或填 ['<bd-id>', ...] 只做這些
-  exclude     : [],       // ★HITL／不可自動做的 id 填這（每輪跳過，且不會讓迴圈卡住）
+  exclude     : ['qr_code_generator-4nw', 'qr_code_generator-zen', 'qr_code_generator-uq9'],  // ★勿 AFK：4nw=prod GeoLite2 部署(ops)；zen=prod backup(已關)；uq9=async-scan-write 健壯性 bug(待人 triage，會動到剛合的 15l 後端)
   maxRounds   : 5,        // 迴圈安全上限
   skipPlan    : false,    // 配 only：跳過 bd ready 直接 build
   ..._argsObj,
