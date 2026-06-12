@@ -48,8 +48,13 @@ export function useGoogleOneTap({
   const [showFallback, setShowFallback] = useState(false)
   const initializedRef = useRef(false)
   // Keep the latest callback without re-running the init effect on every render.
+  // Write the ref in an effect (not during render) so render stays pure — the GIS
+  // callback reads `.current` only on user auth, long after commit, so the
+  // post-commit update is always in time (react-hooks/refs, plugin v6).
   const onCredentialRef = useRef(onCredential)
-  onCredentialRef.current = onCredential
+  useEffect(() => {
+    onCredentialRef.current = onCredential
+  })
 
   const unconfigured = CLIENT_ID === ''
 
