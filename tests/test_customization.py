@@ -551,15 +551,19 @@ class TestQrImageWithCustomization:
         assert resp.status_code == 200
         assert resp.content[:4] == b"\x89PNG"
 
-    def test_customized_link_serves_stored_composite(
+    def test_customized_link_redirects_to_storage_url(
         self, auth_client: TestClient, db_session: Session, owner
     ):
-        """After PUT, GET /image must return the stored composite, not vanilla."""
+        """After PUT, GET /image must redirect (302) to the storage URL, not stream bytes.
+
+        ADR 0017: the image endpoint is a mutable pointer; it returns a 302 to
+        storage.url_for(image_key) so the browser / CDN fetches the immutable object.
+        """
         from backend.main import app
         from backend.router import _get_storage
 
         fake_composite = _minimal_png()
-        gw = InMemoryGateway()
+        gw = InMemoryGateway(base_url="http://fake-storage")
         app.dependency_overrides[_get_storage] = lambda: gw
 
         try:
@@ -568,10 +572,11 @@ class TestQrImageWithCustomization:
                 auth_client, "img0002", image_bytes=fake_composite
             )
             assert put_resp.status_code == 200
+            image_key = put_resp.json()["image_key"]
 
-            img_resp = auth_client.get("/api/qr/img0002/image")
-            assert img_resp.status_code == 200
-            assert img_resp.content == fake_composite
+            img_resp = auth_client.get("/api/qr/img0002/image", follow_redirects=False)
+            assert img_resp.status_code == 302
+            assert img_resp.headers["location"] == f"http://fake-storage/{image_key}"
         finally:
             app.dependency_overrides.pop(_get_storage, None)
 

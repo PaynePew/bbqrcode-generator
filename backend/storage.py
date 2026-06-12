@@ -10,6 +10,13 @@ Two implementations:
 
 Both implement ``StorageGateway``.  Application code should depend only on the
 protocol; the DI wiring lives in ``router.py`` / ``main.py``.
+
+CDN integration (ADR 0017):
+- ``S3Gateway`` accepts an optional ``cdn_base_url``; ``url_for`` returns the
+  CloudFront URL when set, else the existing S3 URL.
+- Composite uploads should call ``put`` with
+  ``cache_control=IMMUTABLE_CACHE_CONTROL`` so CloudFront caches them forever.
+  Logo uploads omit the header (private/owner-only assets).
 """
 
 from __future__ import annotations
@@ -17,17 +24,36 @@ from __future__ import annotations
 import struct
 from typing import Protocol, runtime_checkable
 
+# Immutable cache header for composite QR objects (ADR 0017).
+# The versioned key is content-addressed, so 1-year immutable is safe.
+IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable"
+
 
 @runtime_checkable
 class StorageGateway(Protocol):
     """Minimal interface over object storage (ADR 0011)."""
 
-    def put(self, key: str, data: bytes, content_type: str) -> None:
-        """Write ``data`` under ``key``.  Overwrites silently if key already exists."""
+    def put(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str,
+        cache_control: str | None = None,
+    ) -> None:
+        """Write ``data`` under ``key``.  Overwrites silently if key already exists.
+
+        ``cache_control`` is forwarded to S3 as the ``CacheControl`` metadata so
+        CloudFront (and any HTTP client) respects it.  Pass
+        ``IMMUTABLE_CACHE_CONTROL`` for composite uploads (ADR 0017).
+        """
         ...
 
     def url_for(self, key: str) -> str:
-        """Return a URL at which the object at ``key`` can be fetched publicly."""
+        """Return a URL at which the object at ``key`` can be fetched publicly.
+
+        Returns the CloudFront URL when the gateway is configured with a
+        ``cdn_base_url`` (ADR 0017), else the S3 URL.
+        """
         ...
 
     def delete(self, key: str) -> None:
@@ -55,7 +81,13 @@ class InMemoryGateway:
         self._store: dict[str, tuple[bytes, str]] = {}  # key -> (data, content_type)
         self._base_url = base_url.rstrip("/")
 
-    def put(self, key: str, data: bytes, content_type: str) -> None:
+    def put(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str,
+        cache_control: str | None = None,  # accepted but unused in the in-memory fake
+    ) -> None:
         self._store[key] = (data, content_type)
 
     def url_for(self, key: str) -> str:
@@ -85,14 +117,23 @@ class S3Gateway:
 
     ``AWS_ENDPOINT_URL`` supports S3-compatible stores (MinIO, LocalStack) for
     local development without touching real AWS.
+
+    ``cdn_base_url`` (optional, ADR 0017): when set, ``url_for`` returns a
+    CloudFront URL (``{cdn_base_url}/{key}``) instead of the S3 URL.  Omit for
+    local development or when CloudFront is not yet provisioned.
     """
 
     def __init__(
-        self, bucket: str, region: str, endpoint_url: str | None = None
+        self,
+        bucket: str,
+        region: str,
+        endpoint_url: str | None = None,
+        cdn_base_url: str | None = None,
     ) -> None:
         self._bucket = bucket
         self._region = region
         self._endpoint_url = endpoint_url
+        self._cdn_base_url = cdn_base_url.rstrip("/") if cdn_base_url else None
 
     def _client(self):  # type: ignore[return]
         import boto3  # deferred so tests never need boto3 installed
@@ -102,15 +143,38 @@ class S3Gateway:
             kwargs["endpoint_url"] = self._endpoint_url
         return boto3.client("s3", **kwargs)
 
-    def put(self, key: str, data: bytes, content_type: str) -> None:
-        self._client().put_object(
-            Bucket=self._bucket,
-            Key=key,
-            Body=data,
-            ContentType=content_type,
-        )
+    def put(
+        self,
+        key: str,
+        data: bytes,
+        content_type: str,
+        cache_control: str | None = None,
+    ) -> None:
+        """Write ``data`` under ``key``.
+
+        ``cache_control`` is forwarded as the ``CacheControl`` S3 metadata so
+        CloudFront (and HTTP clients) respect it.  Pass
+        ``IMMUTABLE_CACHE_CONTROL`` for composite uploads (ADR 0017).
+        """
+        kwargs: dict = {
+            "Bucket": self._bucket,
+            "Key": key,
+            "Body": data,
+            "ContentType": content_type,
+        }
+        if cache_control:
+            kwargs["CacheControl"] = cache_control
+        self._client().put_object(**kwargs)
 
     def url_for(self, key: str) -> str:
+        """Return the public URL for ``key``.
+
+        Returns the CloudFront URL when ``cdn_base_url`` is configured
+        (ADR 0017), the LocalStack/MinIO URL when ``endpoint_url`` is set,
+        else the standard S3 HTTPS URL.
+        """
+        if self._cdn_base_url:
+            return f"{self._cdn_base_url}/{key}"
         if self._endpoint_url:
             return f"{self._endpoint_url.rstrip('/')}/{self._bucket}/{key}"
         return f"https://{self._bucket}.s3.{self._region}.amazonaws.com/{key}"

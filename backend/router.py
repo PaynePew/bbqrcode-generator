@@ -30,6 +30,7 @@ from .models import Link, User
 from .qr_generator import generate_qr_png
 from .rate_limiter.ip_extraction import extract_client_ip
 from .storage import (
+    IMMUTABLE_CACHE_CONTROL,
     MAX_IMAGE_BYTES,
     InMemoryGateway,
     S3Gateway,
@@ -62,10 +63,11 @@ _storage_gateway: StorageGateway = InMemoryGateway()
 def build_storage_gateway(env: dict[str, str | None]) -> StorageGateway:
     """Select and return the appropriate StorageGateway from the environment.
 
-    Rules (ADR 0011):
+    Rules (ADR 0011 / ADR 0017):
     - AWS_S3_BUCKET absent → InMemoryGateway (dev / test mode).
     - AWS_S3_BUCKET present → S3Gateway; AWS_REGION is then required.
     - AWS_ENDPOINT_URL (optional) is forwarded to S3Gateway for MinIO/LocalStack.
+    - CDN_BASE_URL (optional) enables CloudFront URL generation in url_for (ADR 0017).
 
     Raises RuntimeError when configuration is incomplete (e.g. bucket without region).
     """
@@ -80,7 +82,13 @@ def build_storage_gateway(env: dict[str, str | None]) -> StorageGateway:
         )
 
     endpoint_url: str | None = env.get("AWS_ENDPOINT_URL", "").strip() or None
-    return S3Gateway(bucket=bucket, region=region, endpoint_url=endpoint_url)
+    cdn_base_url: str | None = env.get("CDN_BASE_URL", "").strip() or None
+    return S3Gateway(
+        bucket=bucket,
+        region=region,
+        endpoint_url=endpoint_url,
+        cdn_base_url=cdn_base_url,
+    )
 
 
 def _get_storage() -> StorageGateway:
@@ -198,25 +206,37 @@ def qr_image(
     db: Session = Depends(get_db),
     storage: StorageGateway = Depends(_get_storage),
 ):
-    """Serve the stored composite QR when present; else regenerate vanilla PNG.
+    """Return the QR image for a Link (ADR 0011 / ADR 0017).
 
-    ADR 0011: customized Links return the persisted composite; uncustomized Links
-    fall back to the on-demand vanilla generator (behavior unchanged).
+    Customized Link → 302 redirect to ``storage.url_for(image_key)`` (the
+    CloudFront URL when CDN_BASE_URL is set, else the S3 URL).  The 302 itself
+    carries ``Cache-Control: no-cache`` because this endpoint is a mutable
+    pointer — re-customizing the Link changes its target.
+
+    Vanilla Link → regenerate the plain PNG inline with ``Cache-Control: no-cache``
+    (a vanilla Link can later become customized, so we must not let clients cache
+    the vanilla response indefinitely).
     """
     link = link_repository.get_link(db, token)
     customization = customization_repository.get_customization(db, link.id)
 
     if customization is not None:
-        composite = storage.get(customization.image_key)
-        if composite is not None:
-            content_type = sniff_image_content_type(composite) or "image/png"
-            return Response(content=composite, media_type=content_type)
+        redirect_url = storage.url_for(customization.image_key)
+        return RedirectResponse(
+            url=redirect_url,
+            status_code=302,
+            headers={"Cache-Control": "no-cache"},
+        )
 
-    # Fallback: regenerate vanilla PNG (unchanged for uncustomized Links)
+    # Fallback: regenerate vanilla PNG inline (uncustomized Links).
     cfg = _config()
     short_url = f"{cfg['base_url']}/r/{token}"
     png_bytes = generate_qr_png(short_url)
-    return Response(content=png_bytes, media_type="image/png")
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"Cache-Control": "no-cache"},
+    )
 
 
 def _validate_and_strip_image(
@@ -291,11 +311,12 @@ async def put_customization(
     now = now_utc()
 
     # Write composite under a NEW versioned key (old one left untouched).
+    # Composite objects are immutable (content-addressed key; ADR 0017).
     image_ext = "png" if image_content_type == "image/png" else "bin"
     image_key = _build_versioned_key(token, "composite", image_ext)
-    storage.put(image_key, stripped_image, image_content_type)
+    storage.put(image_key, stripped_image, image_content_type, IMMUTABLE_CACHE_CONTROL)
 
-    # Write logo if provided.
+    # Write logo if provided.  Logos are private/owner-only — no immutable header.
     logo_key: str | None = None
     if logo_bytes is not None and logo_content_type is not None:
         logo_ext = logo_content_type.split("/")[-1]
