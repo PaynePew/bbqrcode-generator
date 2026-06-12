@@ -43,9 +43,17 @@ the `subdivision` we keep. We derive `country` + `subdivision` from it and **dis
      AccountID <your account id>
      LicenseKey <your license key>
      EditionIDs GeoLite2-City
+     DatabaseDirectory /usr/share/GeoIP
      ```
-     Run `geoipupdate` → writes `GeoLite2-City.mmdb` into the configured `DatabaseDirectory`
-     (default `/usr/share/GeoIP/`).
+     Run `geoipupdate` → writes `GeoLite2-City.mmdb` into `DatabaseDirectory`.
+
+     > ⚠️ **Pin `DatabaseDirectory` explicitly.** When you supply your own `/etc/GeoIP.conf`,
+     > `geoipupdate` falls back to its *compiled-in* default, which differs per box — on this Ubuntu
+     > Lightsail box it was `/var/lib/GeoIP`, so the file landed there, the container (which reads
+     > `/usr/share/GeoIP`) never saw it, and the weekly cron kept refreshing the wrong directory.
+     > Set `DatabaseDirectory /usr/share/GeoIP` (and `sudo mkdir -p /usr/share/GeoIP` first) so both
+     > the initial run *and* the cron write where `GEOIP_DB_PATH` + the compose bind-mount expect.
+     > (Verified 2026-06-12, bd `4nw`.)
 4. **EULA / freshness constraints (load-bearing):**
    - The GeoLite EULA requires you to **keep data current — delete a database within 30 days of a new
      release**. → run `geoipupdate` on a **weekly cron** (the compliant path); do **not** bake a stale
@@ -53,11 +61,17 @@ the `subdivision` we keep. We derive `country` + `subdivision` from it and **dis
    - **30 database downloads per day** limit (irrelevant for a weekly cron).
    - **Attribution required:** show *"This product includes GeoLite2 data created by MaxMind,
      available from https://www.maxmind.com"* somewhere (e.g. an About/footer line) — fold into Phase 7.
-5. **Deploy placement** — either bundle the `.mmdb` into the prod image, or fetch it at deploy via
-   `geoipupdate`. Expose the path to the app via a new env var (the config output of this slice):
+5. **Deploy placement** — the prod approach (bd `4nw`): keep the `.mmdb` on the **host** at
+   `/usr/share/GeoIP` (refreshed by the host's weekly `geoipupdate` cron) and **bind-mount it
+   read-only** into `qrcode-app` in `docker-compose.prod.yml` (`/usr/share/GeoIP:/usr/share/GeoIP:ro`),
+   so the ~66 MB licensed DB is never baked into the image yet stays fresh. Expose the path via:
    ```
    GEOIP_DB_PATH=/usr/share/GeoIP/GeoLite2-City.mmdb
    ```
+   > Note: `scan_derivation` opens the reader **once** and caches it, so the running container keeps
+   > using the file it saw at startup; a weekly cron refresh is only picked up on the next container
+   > recreate (every deploy). For immediate freshness, append
+   > `&& docker compose -f /opt/qrcode/docker-compose.prod.yml up -d qrcode-app` to the cron line.
 6. **Python read (for the AFK `scan_derivation` slice)** — `pip install geoip2`; the module opens the
    reader once and derives **country + subdivision only**, deliberately ignoring city / lat-long:
    ```python

@@ -40,15 +40,19 @@ DIST_ID         = __________
 - [ ] **3. 取得 `GeoLite2-City.mmdb`**(建議用 `geoipupdate`，順便保持更新):
       ```bash
       # 安裝 geoipupdate（macOS: brew install geoipupdate / Ubuntu: apt install geoipupdate）
+      sudo mkdir -p /usr/share/GeoIP
       sudo tee /etc/GeoIP.conf >/dev/null <<'EOF'
       AccountID <ACCOUNT_ID>
       LicenseKey <LICENSE_KEY>
       EditionIDs GeoLite2-City
+      DatabaseDirectory /usr/share/GeoIP
       EOF
-      sudo geoipupdate            # 寫到 DatabaseDirectory（預設 /usr/share/GeoIP/）
+      sudo geoipupdate -v
       ls -l /usr/share/GeoIP/GeoLite2-City.mmdb
       ```
       (手動替代:account → *Download Files* → **GeoLite2 City** → 解壓 `.tar.gz` 取 `.mmdb`。City DB 約 60 MB+,比 Country 大。)
+
+      > ⚠️ **一定要明寫 `DatabaseDirectory /usr/share/GeoIP`。** 自帶 `/etc/GeoIP.conf` 時,`geoipupdate` 用的是**編譯預設**目錄,各機不一 —— 這台 Ubuntu Lightsail box 預設是 `/var/lib/GeoIP`,沒釘的話檔案掉到那裡,容器(讀 `/usr/share/GeoIP`)永遠看不到、每週 cron 也只更新到錯目錄。釘死後初次跑與 cron 都寫對位置。(2026-06-12 bd `4nw` 實際踩到)
 - [ ] **4. 設定 app 讀取路徑**(本片的 config 產出):
       ```
       GEOIP_DB_PATH=/usr/share/GeoIP/GeoLite2-City.mmdb
