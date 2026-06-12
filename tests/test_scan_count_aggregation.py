@@ -24,8 +24,9 @@ def _scan(db_session, token: str, *, offset_seconds: int = 0, status_code: int =
         token=token,
         scanned_at=NOW + timedelta(seconds=offset_seconds),
         status_code=status_code,
-        ip_address=None,
-        user_agent=None,
+        country=None,
+        subdivision=None,
+        device_class=None,
     )
 
 

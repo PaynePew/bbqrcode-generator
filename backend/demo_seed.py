@@ -150,8 +150,11 @@ def _seed_scans(
                     token=token,
                     scanned_at=scanned_at,
                     status_code=status_code,
-                    ip_address=None,
-                    user_agent="DemoSeed/1.0",
+                    country=None,
+                    subdivision=None,
+                    # Demo scans have no real device class — null is correct
+                    # (coarse attributes are not backfilled, ADR 0016).
+                    device_class=None,
                 )
             )
     db.commit()

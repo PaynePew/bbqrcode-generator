@@ -41,9 +41,8 @@ class TestScanLogging:
         scans = db_session.query(Scan).filter(Scan.token == "UNKNOWN1").all()
         assert len(scans) == 0
 
-    def test_scan_ip_uses_extract_client_ip(self, auth_client, db_session, monkeypatch):
-        # With TRUSTED_PROXIES=1 the scan should record the entry one before the
-        # last (trusted) XFF entry, not the rightmost entry (which is the proxy).
+    def test_scan_never_stores_raw_ip(self, auth_client, db_session, monkeypatch):
+        """Raw IP must be derived-and-discarded, never persisted (ADR 0016)."""
         monkeypatch.setenv("TRUSTED_PROXIES", "1")
         token = auth_client.post(
             "/api/qr/create", json={"url": "https://example.com/scanip"}
@@ -54,9 +53,10 @@ class TestScanLogging:
             headers={"X-Forwarded-For": "1.2.3.4, 5.6.7.8, 9.10.11.12"},
         )
         scan = db_session.query(Scan).filter(Scan.token == token).first()
-        assert scan.ip_address == "5.6.7.8"
+        assert not hasattr(scan, "ip_address"), "ip_address must not exist on Scan"
 
-    def test_scan_user_agent_captured(self, auth_client, db_session):
+    def test_scan_never_stores_raw_user_agent(self, auth_client, db_session):
+        """Raw user agent must be derived-and-discarded, never persisted (ADR 0016)."""
         token = auth_client.post(
             "/api/qr/create", json={"url": "https://example.com/scanuа"}
         ).json()["token"]
@@ -66,7 +66,20 @@ class TestScanLogging:
             headers={"User-Agent": "TestBot/1.0"},
         )
         scan = db_session.query(Scan).filter(Scan.token == token).first()
-        assert scan.user_agent == "TestBot/1.0"
+        assert not hasattr(scan, "user_agent"), "user_agent must not exist on Scan"
+
+    def test_scan_records_device_class_from_user_agent(self, auth_client, db_session):
+        """device_class is derived from User-Agent and stored coarsely (ADR 0016)."""
+        token = auth_client.post(
+            "/api/qr/create", json={"url": "https://example.com/devclass"}
+        ).json()["token"]
+        auth_client.get(
+            f"/r/{token}",
+            follow_redirects=False,
+            headers={"User-Agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"},
+        )
+        scan = db_session.query(Scan).filter(Scan.token == token).first()
+        assert scan.device_class == "bot"
 
 
 class TestAnalyticsEndpoint:
@@ -110,6 +123,9 @@ class TestAnalyticsEndpoint:
         assert data["timezone"] == "UTC"
         assert "total_scans" in data
         assert "scans_by_day" in data
+        assert "scans_by_country" in data
+        assert "scans_by_subdivision" in data
+        assert "scans_by_device_class" in data
         assert "recent_scans" in data
 
     def test_analytics_total_scans_zero_with_no_redirects(self, auth_client):
@@ -164,8 +180,11 @@ class TestAnalyticsEndpoint:
         scan = data["recent_scans"][0]
         assert "scanned_at" in scan
         assert "status_code" in scan
-        assert "ip_address" in scan
-        assert "user_agent" in scan
+        assert "country" in scan
+        assert "subdivision" in scan
+        assert "device_class" in scan
+        assert "ip_address" not in scan
+        assert "user_agent" not in scan
 
     def test_analytics_recent_scans_ordered_desc(self, auth_client, db_session):
         token = auth_client.post(
@@ -178,8 +197,9 @@ class TestAnalyticsEndpoint:
                     token=token,
                     scanned_at=now + timedelta(seconds=i),
                     status_code=302,
-                    ip_address=None,
-                    user_agent=None,
+                    country=None,
+                    subdivision=None,
+                    device_class=None,
                 )
             )
         db_session.commit()
@@ -198,8 +218,9 @@ class TestAnalyticsEndpoint:
                     token=token,
                     scanned_at=base + timedelta(seconds=i),
                     status_code=302,
-                    ip_address=None,
-                    user_agent=None,
+                    country=None,
+                    subdivision=None,
+                    device_class=None,
                 )
             )
         db_session.commit()
@@ -215,8 +236,9 @@ class TestAnalyticsEndpoint:
                 token=token,
                 scanned_at=datetime(2026, 5, 7, 10, 0, 0),
                 status_code=302,
-                ip_address=None,
-                user_agent=None,
+                country=None,
+                subdivision=None,
+                device_class=None,
             )
         )
         db_session.add(
@@ -224,8 +246,9 @@ class TestAnalyticsEndpoint:
                 token=token,
                 scanned_at=datetime(2026, 5, 9, 10, 0, 0),
                 status_code=302,
-                ip_address=None,
-                user_agent=None,
+                country=None,
+                subdivision=None,
+                device_class=None,
             )
         )
         db_session.add(
@@ -233,8 +256,9 @@ class TestAnalyticsEndpoint:
                 token=token,
                 scanned_at=datetime(2026, 5, 8, 10, 0, 0),
                 status_code=302,
-                ip_address=None,
-                user_agent=None,
+                country=None,
+                subdivision=None,
+                device_class=None,
             )
         )
         db_session.commit()
