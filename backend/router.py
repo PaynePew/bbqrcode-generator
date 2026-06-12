@@ -6,12 +6,18 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
-from . import analytics, customization_repository, link_repository, scan_repository
+from . import (
+    analytics,
+    customization_repository,
+    link_repository,
+    scan_derivation,
+    scan_repository,
+)
 from .auth import get_current_user
 from .authorization import authorize_owner, forbid_if_demo
 from .database import get_db
@@ -139,15 +145,29 @@ def _link_response(link: Link, base_url: str, state: LinkState) -> dict:
     }
 
 
-def _log_scan(db: Session, token: str, status_code: int, request: Request):
-    trusted_proxies = int(os.environ.get("TRUSTED_PROXIES", "0"))
+def _record_scan_background(
+    db: Session,
+    token: str,
+    status_code: int,
+    ip: str | None,
+    ua: str | None,
+) -> None:
+    """Derive coarse geo + device attributes and persist the Scan.
+
+    Intended as a BackgroundTasks callback — runs after the 302/410 is sent,
+    keeping the raw IP and UA off the redirect hot path and out of any
+    persisted column (ADR 0016: privacy-by-construction).
+    """
+    country, subdivision = scan_derivation.derive_geo(ip)
+    device_class = scan_derivation.derive_device_class(ua)
     scan_repository.record_scan(
         db,
         token=token,
         scanned_at=now_utc(),
         status_code=status_code,
-        ip_address=extract_client_ip(request, trusted_proxies),
-        user_agent=request.headers.get("user-agent"),
+        country=country,
+        subdivision=subdivision,
+        device_class=device_class,
     )
 
 
@@ -375,7 +395,12 @@ def get_customization(
 
 
 @redirect_router.get("/r/{token}")
-def redirect(token: str, request: Request, db: Session = Depends(get_db)):
+def redirect(
+    token: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     # In-process read-cache (ADR 0017): miss hits Postgres once; hits skip the DB.
     # LinkNotFoundError from the loader propagates unchanged → 404.
     # State is derived on every request; expiry resolves automatically without eviction.
@@ -383,11 +408,21 @@ def redirect(token: str, request: Request, db: Session = Depends(get_db)):
         token, lambda: link_repository.get_link(db, token)
     )
     state = derive_state(snapshot, now_utc())
+
+    trusted_proxies = int(os.environ.get("TRUSTED_PROXIES", "0"))
+    ip = extract_client_ip(request, trusted_proxies)
+    ua = request.headers.get("user-agent")
+
     if not state.is_redirectable:
-        _log_scan(db, token, 410, request)
+        # Write the 410 scan synchronously before raising — BackgroundTasks are not
+        # executed when an exception escapes the handler, so we must commit before
+        # raising. The 410 path is not latency-critical (it is an error response).
+        _record_scan_background(db, token, 410, ip, ua)
         raise link_gone(token)
 
-    _log_scan(db, token, 302, request)
+    # Hand the 302 scan write to BackgroundTasks so the redirect returns before
+    # db.commit (ADR 0016 §2: off the hot path; at-most-once is acceptable for analytics).
+    background_tasks.add_task(_record_scan_background, db, token, 302, ip, ua)
     return RedirectResponse(url=snapshot.original_url, status_code=302)
 
 

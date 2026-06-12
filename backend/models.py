@@ -55,14 +55,24 @@ class Link(Base):
 
 
 class Scan(Base):
+    """A single redirect-attempt record (ADR 0016: privacy-by-construction).
+
+    Raw scanner IP and user agent are derived-then-discarded at ingest; only
+    coarse attributes are persisted: ``country`` (ISO 3166-1 alpha-2),
+    ``subdivision`` (ISO 3166-2 code, e.g. "TW-TPE"), and ``device_class``
+    ("mobile", "tablet", "desktop", "bot", or "unknown").  All three are
+    nullable — rows pre-migration 0006 carry NULLs (no backfill).
+    """
+
     __tablename__ = "scans"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     token: Mapped[str] = mapped_column(String, nullable=False)
     scanned_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     status_code: Mapped[int] = mapped_column(Integer, nullable=False)
-    ip_address: Mapped[str | None] = mapped_column(String, nullable=True)
-    user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
+    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
+    subdivision: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    device_class: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
 
 class LinkCustomization(Base):

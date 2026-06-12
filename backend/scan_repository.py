@@ -1,5 +1,6 @@
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -13,15 +14,22 @@ def record_scan(
     token: str,
     scanned_at: datetime,
     status_code: int,
-    ip_address: Optional[str],
-    user_agent: Optional[str],
+    country: str | None,
+    subdivision: str | None,
+    device_class: str | None,
 ) -> None:
+    """Persist a Scan row with coarse, derived attributes only (ADR 0016).
+
+    Raw IP and user agent are derived-and-discarded upstream in
+    ``scan_derivation``; this function never receives or stores them.
+    """
     scan = Scan(
         token=token,
         scanned_at=scanned_at,
         status_code=status_code,
-        ip_address=ip_address,
-        user_agent=user_agent,
+        country=country,
+        subdivision=subdivision,
+        device_class=device_class,
     )
     db.add(scan)
     db.commit()

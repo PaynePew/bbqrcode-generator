@@ -5,14 +5,19 @@ from backend.models import Scan
 
 
 def _scan(
-    scanned_at: datetime, status_code: int = 302, ip="1.2.3.4", ua="UA/1.0"
+    scanned_at: datetime,
+    status_code: int = 302,
+    country: str | None = "US",
+    subdivision: str | None = "CA",
+    device_class: str | None = "desktop",
 ) -> Scan:
     return Scan(
         token="ABCDEFG",
         scanned_at=scanned_at,
         status_code=status_code,
-        ip_address=ip,
-        user_agent=ua,
+        country=country,
+        subdivision=subdivision,
+        device_class=device_class,
     )
 
 
@@ -22,6 +27,9 @@ class TestEmptyInput:
         assert result == {
             "total_scans": 0,
             "scans_by_day": [],
+            "scans_by_country": {},
+            "scans_by_subdivision": {},
+            "scans_by_device_class": {},
             "recent_scans": [],
         }
 
@@ -74,9 +82,17 @@ class TestRecentScans:
         assert recent[0] == {
             "scanned_at": "2026-05-08T10:00:00+00:00",
             "status_code": 302,
-            "ip_address": "1.2.3.4",
-            "user_agent": "UA/1.0",
+            "country": "US",
+            "subdivision": "CA",
+            "device_class": "desktop",
         }
+
+    def test_no_ip_address_or_user_agent_in_recent_scans(self):
+        """recent_scans must never expose raw scanner identity (ADR 0016)."""
+        scans = [_scan(datetime(2026, 5, 8, 10, 0, 0))]
+        recent = aggregate_scans(scans)["recent_scans"]
+        assert "ip_address" not in recent[0]
+        assert "user_agent" not in recent[0]
 
     def test_scanned_at_carries_utc_marker(self):
         # bead 8s8: scanned_at is stored naive-UTC; it must cross the wire
