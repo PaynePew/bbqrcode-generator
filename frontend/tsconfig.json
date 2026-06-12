@@ -20,8 +20,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Path aliases */
-    "baseUrl": ".",
+    /* Path aliases — no baseUrl (deprecated in TS6, removed in TS7): with paths
+       but no baseUrl, the patterns resolve relative to this tsconfig's directory,
+       so "./src/*" still maps @/* to frontend/src/*. */
     "paths": {
       "@/*": ["./src/*"]
     }

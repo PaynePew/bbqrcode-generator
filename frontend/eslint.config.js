@@ -19,6 +19,13 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks v6 ships new correctness rules. Enable the two
+      // that catch real bugs — synchronous setState inside an effect (cascading
+      // renders) and reading/writing refs during render (impure render). The rest
+      // of v6's `recommended-latest` set is React-Compiler optimisation lint
+      // (immutability/purity/use-memo) — a separate, larger adoption, left off here.
+      'react-hooks/set-state-in-effect': 'error',
+      'react-hooks/refs': 'error',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       // TypeScript resolves identifiers; no-undef is redundant and noisy for TS.
       'no-undef': 'off',
