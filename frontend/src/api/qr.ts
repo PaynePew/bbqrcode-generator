@@ -90,7 +90,9 @@ export interface ScanByDay {
 export interface RecentScan {
   scanned_at: string
   status_code: number
-  user_agent: string | null
+  country: string | null
+  subdivision: string | null
+  device_class: string | null
 }
 
 export interface AnalyticsResponse {
@@ -98,6 +100,9 @@ export interface AnalyticsResponse {
   timezone: string
   total_scans: number
   scans_by_day: ScanByDay[]
+  scans_by_country: Record<string, number>
+  scans_by_subdivision: Record<string, number>
+  scans_by_device_class: Record<string, number>
   recent_scans: RecentScan[]
 }
 

@@ -238,11 +238,16 @@ describe('getAnalytics', () => {
       { date: '2026-05-01', count: 10, status_codes: { '302': 9, '410': 1 } },
       { date: '2026-05-02', count: 5, status_codes: { '302': 5, '410': 0 } },
     ],
+    scans_by_country: { TW: 30, US: 12 },
+    scans_by_subdivision: { TPE: 18, CA: 12, unknown: 12 },
+    scans_by_device_class: { mobile: 28, desktop: 12, bot: 2 },
     recent_scans: [
       {
         scanned_at: '2026-05-02T12:00:00Z',
         status_code: 302,
-        user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        country: 'TW',
+        subdivision: 'TPE',
+        device_class: 'mobile',
       },
     ],
   }
@@ -266,14 +271,28 @@ describe('getAnalytics', () => {
     expect(result.recent_scans).toHaveLength(1)
   })
 
-  it('returns recent scan with status_code and user_agent', async () => {
+  it('returns recent scan with coarse country/subdivision/device_class and no raw PII', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockAnalytics })
 
     const result = await getAnalytics('abc1234')
     const scan = result.recent_scans[0]
 
     expect(scan.status_code).toBe(302)
-    expect(scan.user_agent).toBe('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
+    expect(scan.country).toBe('TW')
+    expect(scan.subdivision).toBe('TPE')
+    expect(scan.device_class).toBe('mobile')
+    expect(scan).not.toHaveProperty('user_agent')
+    expect(scan).not.toHaveProperty('ip_address')
+  })
+
+  it('exposes coarse geo + device breakdowns', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ data: mockAnalytics })
+
+    const result = await getAnalytics('abc1234')
+
+    expect(result.scans_by_country).toEqual({ TW: 30, US: 12 })
+    expect(result.scans_by_subdivision.TPE).toBe(18)
+    expect(result.scans_by_device_class.mobile).toBe(28)
   })
 })
 

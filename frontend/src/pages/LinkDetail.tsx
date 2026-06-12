@@ -28,7 +28,6 @@ import { computeExpiresAt, resolveExpiresAt, toDatetimeLocalValue, PRESET_LABELS
 import { Button } from '@/components/ui/button'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { StatusBadge } from '@/components/ui/StatusBadge'
-import { parse as parseUA } from '@/lib/uaParser'
 import { QRCustomizer } from '@/components/QRCustomizer'
 import {
   DEFAULT_STYLE,
@@ -105,13 +104,59 @@ function statusBadgeClass(code: number): string {
     : 'bg-red-100 text-red-800'
 }
 
-function formatUa(rawUa: string | null): string {
-  if (!rawUa) return '未知'
-  const { browser, os } = parseUA(rawUa)
-  if (browser && os) return `${browser} on ${os}`
-  if (browser) return browser
-  if (os) return os
-  return rawUa.slice(0, 40)
+// Coarse derived fields only — no raw IP / user agent ever reaches the client
+// (ADR 0016 privacy-by-construction). The backend groups NULL values under the
+// "unknown" key in the *_by_* breakdowns; the recent-scans feed sends null.
+const DEVICE_CLASS_LABELS: Record<string, string> = {
+  mobile: '手機',
+  tablet: '平板',
+  desktop: '桌機',
+  bot: '機器人',
+  unknown: '未知',
+}
+
+function formatDeviceClass(deviceClass: string | null): string {
+  if (!deviceClass) return '未知'
+  return DEVICE_CLASS_LABELS[deviceClass] ?? deviceClass
+}
+
+function formatRegion(country: string | null, subdivision: string | null): string {
+  if (!country) return '未知'
+  return subdivision ? `${country} · ${subdivision}` : country
+}
+
+function coarseLabel(key: string): string {
+  return key === 'unknown' ? '未知' : key
+}
+
+/** Render a {value -> count} breakdown as a list sorted by count desc. */
+function BreakdownPanel({
+  title,
+  data,
+  labelFor = coarseLabel,
+}: {
+  title: string
+  data: Record<string, number>
+  labelFor?: (key: string) => string
+}) {
+  const rows = Object.entries(data).sort((a, b) => b[1] - a[1])
+  return (
+    <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
+      <span className="text-sm font-medium">{title}</span>
+      {rows.length === 0 ? (
+        <span className="text-xs text-muted-foreground">尚無資料</span>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {rows.map(([key, count]) => (
+            <li key={key} className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{labelFor(key)}</span>
+              <span className="font-medium tabular-nums">{count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function todayScans(analytics: AnalyticsResponse): number {
@@ -237,18 +282,30 @@ function AnalyticsSection({ token }: { token: string }) {
         </ResponsiveContainer>
       </div>
 
+      {/* Coarse geo + device breakdowns (ADR 0016 decision 3 — no raw PII) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <BreakdownPanel title="國家 / 地區" data={analytics.scans_by_country} />
+        <BreakdownPanel title="行政區（州 / 省 / 縣市）" data={analytics.scans_by_subdivision} />
+        <BreakdownPanel
+          title="裝置類型"
+          data={analytics.scans_by_device_class}
+          labelFor={(k) => formatDeviceClass(k)}
+        />
+      </div>
+
       {/* Recent scans table */}
       <div className="rounded-lg border bg-card overflow-hidden">
         <div className="px-4 py-3 border-b">
           <span className="text-sm font-medium">最近掃描紀錄（最多 50 筆）</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px] text-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
                 <th className="text-left px-4 py-2 font-medium text-muted-foreground">時間</th>
                 <th className="text-left px-4 py-2 font-medium text-muted-foreground">狀態碼</th>
-                <th className="text-left px-4 py-2 font-medium text-muted-foreground">用戶代理</th>
+                <th className="text-left px-4 py-2 font-medium text-muted-foreground">地區</th>
+                <th className="text-left px-4 py-2 font-medium text-muted-foreground">裝置</th>
               </tr>
             </thead>
             <tbody>
@@ -270,7 +327,10 @@ function AnalyticsSection({ token }: { token: string }) {
                     </span>
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
-                    {formatUa(scan.user_agent)}
+                    {formatRegion(scan.country, scan.subdivision)}
+                  </td>
+                  <td className="px-4 py-2 text-muted-foreground">
+                    {formatDeviceClass(scan.device_class)}
                   </td>
                 </tr>
               ))}
