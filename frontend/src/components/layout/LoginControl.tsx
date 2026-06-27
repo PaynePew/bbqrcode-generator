@@ -24,10 +24,11 @@ export function LoginControl() {
     [login],
   )
 
-  const { showFallback, unconfigured, renderFallbackButton } = useGoogleOneTap({
-    onCredential: handleCredential,
-    enabled: !isLoading && !isAuthenticated,
-  })
+  const { showFallback, unconfigured, renderFallbackButton, renderFallbackIconButton } =
+    useGoogleOneTap({
+      onCredential: handleCredential,
+      enabled: !isLoading && !isAuthenticated,
+    })
 
   function handleLogout() {
     logout().catch(() =>
@@ -70,13 +71,27 @@ export function LoginControl() {
 
   // Logged out: One Tap drives login; show the fallback button when it cannot,
   // and always offer a no-login "Try as guest" entry into the demo account.
+  // The full Google pill is ~200px and overflows the header on mobile, so it
+  // collapses to an icon-only button below `sm` (RWD fix).
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 shrink-0">
       {(showFallback || unconfigured) && (
-        <div ref={renderFallbackButton} aria-label="使用 Google 登入" />
+        <>
+          <div
+            ref={renderFallbackButton}
+            aria-label="使用 Google 登入"
+            className="hidden sm:block"
+          />
+          <div
+            ref={renderFallbackIconButton}
+            aria-label="使用 Google 登入"
+            className="sm:hidden"
+          />
+        </>
       )}
-      <Button variant="outline" size="sm" onClick={handleGuest}>
-        以訪客身分試用
+      <Button variant="outline" size="sm" onClick={handleGuest} className="shrink-0">
+        <span className="hidden sm:inline">以訪客身分試用</span>
+        <span className="sm:hidden">訪客</span>
       </Button>
     </div>
   )

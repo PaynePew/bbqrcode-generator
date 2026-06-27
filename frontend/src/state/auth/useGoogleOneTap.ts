@@ -17,6 +17,15 @@ const FALLBACK_BUTTON_CONFIG: GoogleButtonConfig = {
   shape: 'pill',
 }
 
+// Compact icon-only variant for narrow viewports — the full "Sign in with
+// Google" pill is ~200px and overflows the header on mobile (RWD fix).
+const ICON_BUTTON_CONFIG: GoogleButtonConfig = {
+  type: 'icon',
+  theme: 'outline',
+  size: 'large',
+  shape: 'pill',
+}
+
 export interface UseGoogleOneTapOptions {
   /** Trade the One Tap credential for an app session. */
   onCredential: (credential: string) => void
@@ -29,8 +38,10 @@ export interface UseGoogleOneTapResult {
   showFallback: boolean
   /** True when no Google client id is configured — the whole feature is unavailable. */
   unconfigured: boolean
-  /** Ref-callback that renders Google's official button into the given element. */
+  /** Ref-callback that renders Google's official full "Sign in with Google" button. */
   renderFallbackButton: (element: HTMLElement | null) => void
+  /** Ref-callback that renders the compact icon-only button (narrow viewports). */
+  renderFallbackIconButton: (element: HTMLElement | null) => void
 }
 
 /**
@@ -103,5 +114,10 @@ export function useGoogleOneTap({
     getGoogleIdentity()?.renderButton(element, FALLBACK_BUTTON_CONFIG)
   }, [])
 
-  return { showFallback, unconfigured, renderFallbackButton }
+  const renderFallbackIconButton = useCallback((element: HTMLElement | null) => {
+    if (!element) return
+    getGoogleIdentity()?.renderButton(element, ICON_BUTTON_CONFIG)
+  }, [])
+
+  return { showFallback, unconfigured, renderFallbackButton, renderFallbackIconButton }
 }

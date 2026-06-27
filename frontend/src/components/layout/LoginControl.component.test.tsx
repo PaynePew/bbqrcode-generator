@@ -42,6 +42,7 @@ const NO_FALLBACK_ONE_TAP = {
   showFallback: false,
   unconfigured: false,
   renderFallbackButton: vi.fn(),
+  renderFallbackIconButton: vi.fn(),
 }
 
 const REAL_USER: AuthUser = {
@@ -252,11 +253,14 @@ describe('LoginControl — logged-out state', () => {
       showFallback: true,
       unconfigured: false,
       renderFallbackButton: vi.fn(),
+      renderFallbackIconButton: vi.fn(),
     })
 
     renderLoginControl()
 
-    expect(screen.getByLabelText('使用 Google 登入')).toBeTruthy()
+    // Two affordances render (full button + compact icon); CSS shows one per
+    // breakpoint. In jsdom both are present, so assert at least one exists.
+    expect(screen.getAllByLabelText('使用 Google 登入').length).toBeGreaterThan(0)
   })
 
   it('renders the Google fallback button container when unconfigured=true (no client ID)', () => {
@@ -273,11 +277,12 @@ describe('LoginControl — logged-out state', () => {
       showFallback: false,
       unconfigured: true,
       renderFallbackButton: vi.fn(),
+      renderFallbackIconButton: vi.fn(),
     })
 
     renderLoginControl()
 
-    expect(screen.getByLabelText('使用 Google 登入')).toBeTruthy()
+    expect(screen.getAllByLabelText('使用 Google 登入').length).toBeGreaterThan(0)
   })
 
   it('does not render the fallback Google button container when One Tap is active', () => {
@@ -294,6 +299,7 @@ describe('LoginControl — logged-out state', () => {
       showFallback: false,
       unconfigured: false,
       renderFallbackButton: vi.fn(),
+      renderFallbackIconButton: vi.fn(),
     })
 
     renderLoginControl()
